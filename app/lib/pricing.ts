@@ -1,0 +1,88 @@
+export type JobInputs = {
+  distanceTier: 'under25' | '25to40' | '40to65';
+  jobType: string;
+  carryDistance: 'curbside' | 'short' | 'medium' | 'long';
+  stairs: 'none' | 'some' | 'heavy';
+  workers: number;
+  notes: string;
+};
+
+export type VisionAnalysis = {
+  estimatedLoadPercent: number;
+  estimatedLoadRange: string;
+  materialType: string;
+  heavyDebrisRisk: 'low' | 'medium' | 'high';
+  difficulty: 'easy' | 'medium' | 'hard';
+  visibleItems: string[];
+  warnings: string[];
+  questionsToAsk: string[];
+};
+
+export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
+  const minimums = { under25: 130, '25to40': 145, '40to65': 175 };
+  const minPrice = minimums[inputs.distanceTier];
+
+  const loadPercent = Math.max(10, Math.min(200, Number(analysis.estimatedLoadPercent || 50)));
+  let base = Math.round((loadPercent / 100) * 450);
+
+  // Preserve minimum pickup rules.
+  base = Math.max(base, minPrice);
+
+  let adjustments = 0;
+  const adjustmentNotes: string[] = [];
+
+  if (analysis.heavyDebrisRisk === 'medium') {
+    adjustments += 50;
+    adjustmentNotes.push('Medium heavy/debris risk adjustment');
+  }
+  if (analysis.heavyDebrisRisk === 'high') {
+    adjustments += 125;
+    adjustmentNotes.push('High heavy/demo/concrete risk adjustment');
+  }
+
+  if (analysis.difficulty === 'medium') {
+    adjustments += 35;
+    adjustmentNotes.push('Medium labor difficulty adjustment');
+  }
+  if (analysis.difficulty === 'hard') {
+    adjustments += 100;
+    adjustmentNotes.push('Hard labor/access adjustment');
+  }
+
+  if (inputs.carryDistance === 'medium') {
+    adjustments += 40;
+    adjustmentNotes.push('Medium carry-distance adjustment');
+  }
+  if (inputs.carryDistance === 'long') {
+    adjustments += 90;
+    adjustmentNotes.push('Long carry-distance adjustment');
+  }
+
+  if (inputs.stairs === 'some') {
+    adjustments += 40;
+    adjustmentNotes.push('Stairs adjustment');
+  }
+  if (inputs.stairs === 'heavy') {
+    adjustments += 100;
+    adjustmentNotes.push('Heavy stairs adjustment');
+  }
+
+  if (inputs.jobType.toLowerCase().includes('cardboard')) {
+    adjustments -= 40;
+    adjustmentNotes.push('Cardboard-only discount applied');
+  }
+
+  const low = Math.max(minPrice, Math.round((base + adjustments - 35) / 5) * 5);
+  const high = Math.max(low, Math.round((base + adjustments + 45) / 5) * 5);
+  const suggested = Math.round(((low + high) / 2) / 5) * 5;
+
+  return {
+    minimumPrice: minPrice,
+    baseLoadPrice: base,
+    adjustments,
+    adjustmentNotes,
+    recommendedRange: `$${low}–$${high}`,
+    suggestedQuote: suggested,
+    customerMessage: `Based on the photos and details provided, we can take care of this for $${suggested}. This includes loading, hauling, and proper disposal. Final price assumes the material shown is accurate and there is no hidden heavy/demo debris beyond what is visible.`
+  };
+}
