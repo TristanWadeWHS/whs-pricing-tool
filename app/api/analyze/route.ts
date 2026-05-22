@@ -16,9 +16,12 @@ function fallbackAnalysis(): VisionAnalysis {
     materialType: 'mixed junk / unknown',
     heavyDebrisRisk: 'medium',
     difficulty: 'medium',
+    photoAngleQuality: 'fair',
+    confidencePercent: 65,
+    hiddenDebrisRisk: 'medium',
     visibleItems: [],
     warnings: ['AI analysis unavailable or incomplete. Manager review recommended.'],
-    questionsToAsk: ['Are there stairs, long carry distance, or hidden heavy materials not shown in the photos?']
+    questionsToAsk: ['Is there anything underneath, behind, or hidden that is not shown in the photos? If yes, price may increase on site.']
   };
 }
 
@@ -30,6 +33,7 @@ export async function POST(req: NextRequest) {
 
     const form = await req.formData();
     const files = form.getAll('photos') as File[];
+
     const inputs: JobInputs = {
       distanceTier: String(form.get('distanceTier') || 'under25') as JobInputs['distanceTier'],
       jobType: String(form.get('jobType') || 'mixed junk'),
@@ -59,15 +63,20 @@ Return ONLY valid JSON with this exact shape:
   "materialType": string,
   "heavyDebrisRisk": "low" | "medium" | "high",
   "difficulty": "easy" | "medium" | "hard",
+  "photoAngleQuality": "poor" | "fair" | "good",
+  "confidencePercent": number,
+  "hiddenDebrisRisk": "low" | "medium" | "high",
   "visibleItems": string[],
   "warnings": string[],
   "questionsToAsk": string[]
 }
 Rules:
-- Trailer is 12 cubic yards. Full load baseline is $450, but you only estimate load and risk; pricing engine handles final price.
-- Be conservative when photos are close-up, wide-angle, blocked, or may hide extra material.
+- Trailer is 12 cubic yards. Full load baseline is $450.
+- Be conservative when photos are close-up, wide-angle, blocked, dark, blurry, or may hide extra material.
+- If debris could be underneath, behind, covered, stacked, or not fully declared, set hiddenDebrisRisk to medium or high.
+- Add this warning when appropriate: "Confirm whether anything is underneath, behind, or hidden. If not declared, price may increase on site."
 - Flag concrete, dirt, tile, drywall, appliances, demo debris, cinder blocks, roofing, or very dense materials.
-- If access, stairs, or distance are unclear, ask questions.
+- Estimate confidence from 1 to 100 based on photo clarity, number of angles, and visibility.
 - Never guarantee final price from photos alone.`;
 
     const response = await client.responses.create({
@@ -85,6 +94,7 @@ Rules:
 
     const text = response.output_text || '';
     let analysis: VisionAnalysis;
+
     try {
       analysis = JSON.parse(text);
     } catch {

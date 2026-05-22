@@ -12,6 +12,7 @@ type Result = {
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [fileCount, setFileCount] = useState(0);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -33,15 +34,26 @@ export default function Home() {
   return (
     <main className="page">
       <section className="hero">
-        <p className="eyebrow">Wade Home Services</p>
-        <h1>Internal Pricing Tool</h1>
-        <p className="sub">Upload job photos, enter the basic details, and get an AI-assisted quote recommendation.</p>
+        <div>
+          <p className="eyebrow">Wade Home Services</p>
+          <h1>Internal Pricing Tool</h1>
+          <p className="sub">Upload job photos, enter the basic details, and get an AI-assisted quote recommendation.</p>
+        </div>
+        <img className="winstonLogo" src="/winston-logo.png" alt="Wade Home Services Winston logo" />
       </section>
 
       <form className="card form" onSubmit={submit}>
         <label>
           Job photos, 1–5 images
-          <input name="photos" type="file" accept="image/*" multiple required />
+          <input
+            name="photos"
+            type="file"
+            accept="image/*"
+            multiple
+            required
+            onChange={(e) => setFileCount(e.target.files?.length || 0)}
+          />
+          <span className="helperText">{fileCount > 0 ? `${fileCount} image(s) selected` : 'Select up to 5 photos from different angles.'}</span>
         </label>
 
         <div className="grid">
@@ -108,6 +120,18 @@ export default function Home() {
             <p>Suggested Quote</p>
             <h2>${result.pricing.suggestedQuote}</h2>
             <span>{result.pricing.recommendedRange}</span>
+          </div>
+
+          <div className="summaryBox">
+            <h3>Estimate Quality</h3>
+            <p><b>Confidence:</b> {result.analysis.confidencePercent}%</p>
+            <p><b>Photo angle quality:</b> {result.analysis.photoAngleQuality}</p>
+            <p><b>Potential hidden debris risk:</b> {result.analysis.hiddenDebrisRisk}</p>
+          </div>
+
+          <div className="competitorBox">
+            <h3>Competitor Pricing Summary</h3>
+            <p>{result.pricing.competitorSummary}</p>
           </div>
 
           <div className="grid resultGrid">

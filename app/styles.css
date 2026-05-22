@@ -81,3 +81,48 @@ button:disabled { opacity: .65; }
 .error { color: #a10000; border-color: #f0b5b5; background: #fff4f4; }
 ul { padding-left: 20px; }
 @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 22px;
+}
+
+.winstonLogo {
+  width: 140px;
+  height: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.helperText {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.summaryBox,
+.competitorBox {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #f8fbf4;
+}
+
+.competitorBox {
+  background: #fff8dc;
+  border-color: #eed277;
+}
+
+@media (max-width: 720px) {
+  .hero {
+    align-items: flex-start;
+  }
+
+  .winstonLogo {
+    width: 88px;
+  }
+}
