@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   INITIAL_LOADING_MESSAGE,
   beginEstimateLoading,
-  canStartEstimateSubmit,
+  claimEstimateSubmit,
   finishEstimateLoading,
   getEstimateLoadingMessage,
   idleLoadingState,
   isEstimateSubmitDisabled,
   markEstimateStillWorking,
+  releaseEstimateSubmit,
   scheduleStillWorkingMessage
 } from './lib/estimate-loading';
 
@@ -28,6 +29,7 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   const [fileCount, setFileCount] = useState(0);
   const activeRequestId = useRef(0);
+  const submitInFlightRef = useRef(false);
   const loadingPanelRef = useRef<HTMLElement | null>(null);
   const mountedRef = useRef(false);
   const loading = loadingState.active;
@@ -68,7 +70,7 @@ export default function Home() {
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!canStartEstimateSubmit(loadingState, e.currentTarget.checkValidity())) {
+    if (!claimEstimateSubmit(submitInFlightRef, loadingState, e.currentTarget.checkValidity())) {
       return;
     }
 
@@ -100,6 +102,7 @@ export default function Home() {
         });
       }
     } finally {
+      releaseEstimateSubmit(submitInFlightRef, activeRequestId.current, requestId);
       if (mountedRef.current) {
         setLoadingState((current) => finishEstimateLoading(current, requestId));
       }

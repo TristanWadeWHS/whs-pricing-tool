@@ -7,12 +7,14 @@ import {
   STILL_WORKING_MESSAGE,
   beginEstimateLoading,
   canStartEstimateSubmit,
+  claimEstimateSubmit,
   finishEstimateLoading,
   getEstimateLoadingMessage,
   idleLoadingState,
   isEstimateSubmitDisabled,
   isStaleEstimateResponse,
   markEstimateStillWorking,
+  releaseEstimateSubmit,
   scheduleStillWorkingMessage
 } from '../app/lib/estimate-loading';
 
@@ -24,7 +26,7 @@ describe('estimate loading state', () => {
   it('starts immediately for a valid submission with clear loading copy', () => {
     const state = beginEstimateLoading(1);
     expect(state.active).toBe(true);
-    expect(INITIAL_LOADING_MESSAGE).toBe('Analyzing photos and job details...');
+    expect(INITIAL_LOADING_MESSAGE).toBe('Analyzing photos and job details…');
     expect(getEstimateLoadingMessage(state)).toBe(REQUEST_RECEIVED_MESSAGE);
     expect(REQUEST_RECEIVED_MESSAGE).toContain('Request received');
   });
@@ -35,6 +37,17 @@ describe('estimate loading state', () => {
     const loading = beginEstimateLoading(1);
     expect(canStartEstimateSubmit(loading, true)).toBe(false);
     expect(isEstimateSubmitDisabled(loading)).toBe(true);
+  });
+
+  it('uses a synchronous in-flight guard to prevent same-tick duplicate submits', () => {
+    const guard = { current: false };
+
+    expect(claimEstimateSubmit(guard, idleLoadingState, true)).toBe(true);
+    expect(guard.current).toBe(true);
+    expect(claimEstimateSubmit(guard, idleLoadingState, true)).toBe(false);
+
+    releaseEstimateSubmit(guard, 1, 1);
+    expect(guard.current).toBe(false);
   });
 
   it('shows the still-working message after the configured delay using fake timers', () => {
@@ -49,10 +62,22 @@ describe('estimate loading state', () => {
     expect(callback).toHaveBeenCalledTimes(1);
   });
 
+  it('cleans up the still-working timer before it fires', () => {
+    vi.useFakeTimers();
+    const callback = vi.fn();
+    const timer = scheduleStillWorkingMessage(callback);
+
+    clearTimeout(timer);
+    vi.advanceTimersByTime(STILL_WORKING_DELAY_MS);
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
   it('updates the supporting message for long-running requests', () => {
     const loading = beginEstimateLoading(2);
     const stillWorking = markEstimateStillWorking(loading, 2);
     expect(stillWorking.showStillWorking).toBe(true);
+    expect(getEstimateLoadingMessage(stillWorking)).toBe('Still working — detailed photo analysis can take a little longer.');
     expect(getEstimateLoadingMessage(stillWorking)).toBe(STILL_WORKING_MESSAGE);
   });
 

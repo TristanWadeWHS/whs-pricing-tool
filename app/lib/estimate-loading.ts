@@ -1,6 +1,6 @@
 export const STILL_WORKING_DELAY_MS = 8_000;
-export const INITIAL_LOADING_MESSAGE = 'Analyzing photos and job details...';
-export const STILL_WORKING_MESSAGE = 'Still working - detailed photo analysis can take a little longer.';
+export const INITIAL_LOADING_MESSAGE = 'Analyzing photos and job details…';
+export const STILL_WORKING_MESSAGE = 'Still working — detailed photo analysis can take a little longer.';
 export const REQUEST_RECEIVED_MESSAGE = 'Request received. Keep this page open while the estimate is analyzed.';
 
 export type EstimateLoadingState = {
@@ -56,6 +56,25 @@ export function canStartEstimateSubmit(state: EstimateLoadingState, formIsValid:
 
 export function isEstimateSubmitDisabled(state: EstimateLoadingState) {
   return state.active;
+}
+
+export type EstimateSubmitGuard = {
+  current: boolean;
+};
+
+export function claimEstimateSubmit(guard: EstimateSubmitGuard, state: EstimateLoadingState, formIsValid: boolean) {
+  if (guard.current || !canStartEstimateSubmit(state, formIsValid)) {
+    return false;
+  }
+
+  guard.current = true;
+  return true;
+}
+
+export function releaseEstimateSubmit(guard: EstimateSubmitGuard, activeRequestId: number, finishedRequestId: number) {
+  if (activeRequestId === finishedRequestId) {
+    guard.current = false;
+  }
 }
 
 export function scheduleStillWorkingMessage(callback: () => void) {
