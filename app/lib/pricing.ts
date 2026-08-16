@@ -1,3 +1,5 @@
+import { VisionAnalysis } from './analysis-schema';
+
 export type JobInputs = {
   distanceTier: 'under25' | '25to40' | '40to65';
   jobType: string;
@@ -5,20 +7,6 @@ export type JobInputs = {
   stairs: 'none' | 'some' | 'heavy';
   workers: number;
   notes: string;
-};
-
-export type VisionAnalysis = {
-  estimatedLoadPercent: number;
-  estimatedLoadRange: string;
-  materialType: string;
-  heavyDebrisRisk: 'low' | 'medium' | 'high';
-  difficulty: 'easy' | 'medium' | 'hard';
-  photoAngleQuality: 'poor' | 'fair' | 'good';
-  confidencePercent: number;
-  hiddenDebrisRisk: 'low' | 'medium' | 'high';
-  visibleItems: string[];
-  warnings: string[];
-  questionsToAsk: string[];
 };
 
 export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
@@ -109,3 +97,5 @@ export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
     customerMessage: `Based on the photos and details provided, we can take care of this for $${suggested}. This includes loading, hauling, and proper disposal. Final price assumes the material shown is accurate and there is no hidden heavy/demo debris beyond what is visible. Please confirm if anything is underneath, behind, or not shown in the photos. If additional undeclared material is found on site, the price may increase.`
   };
 }
+
+export type PricingResult = ReturnType<typeof priceJob>;
