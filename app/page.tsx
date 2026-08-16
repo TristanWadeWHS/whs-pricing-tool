@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { analysisFailed, parseAnalyzeResponse } from './lib/analyze-response';
 import {
   INITIAL_LOADING_MESSAGE,
   beginEstimateLoading,
@@ -13,16 +14,7 @@ import {
   releaseEstimateSubmit,
   scheduleStillWorkingMessage
 } from './lib/estimate-loading';
-
-type Result = {
-  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
-  statusReasons?: string[];
-  confidenceThreshold?: number;
-  analysis: any;
-  pricing: any;
-  inputs: any;
-  error?: string;
-};
+import { Result } from './lib/result-types';
 
 export default function Home() {
   const [loadingState, setLoadingState] = useState(idleLoadingState);
@@ -84,22 +76,21 @@ export default function Home() {
       const formData = new FormData(e.currentTarget);
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        body: formData
+        body: formData,
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          accept: 'application/json'
+        }
       });
 
-      const data = await res.json();
+      const data = await parseAnalyzeResponse(res);
       if (mountedRef.current && activeRequestId.current === requestId) {
         setResult(data);
       }
     } catch {
       if (mountedRef.current && activeRequestId.current === requestId) {
-        setResult({
-          status: 'analysis_failed',
-          error: 'The estimate request could not be completed. Manual review is required.',
-          analysis: null,
-          pricing: null,
-          inputs: null
-        });
+        setResult(analysisFailed('The estimate request could not be completed. Manual review is required.'));
       }
     } finally {
       releaseEstimateSubmit(submitInFlightRef, activeRequestId.current, requestId);
