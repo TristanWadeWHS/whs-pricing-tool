@@ -1,6 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  INITIAL_LOADING_MESSAGE,
+  beginEstimateLoading,
+  canStartEstimateSubmit,
+  finishEstimateLoading,
+  getEstimateLoadingMessage,
+  idleLoadingState,
+  isEstimateSubmitDisabled,
+  markEstimateStillWorking,
+  scheduleStillWorkingMessage
+} from './lib/estimate-loading';
 
 type Result = {
   status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
@@ -13,13 +24,58 @@ type Result = {
 };
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
+  const [loadingState, setLoadingState] = useState(idleLoadingState);
   const [result, setResult] = useState<Result | null>(null);
   const [fileCount, setFileCount] = useState(0);
+  const activeRequestId = useRef(0);
+  const loadingPanelRef = useRef<HTMLElement | null>(null);
+  const mountedRef = useRef(false);
+  const loading = loadingState.active;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!loadingState.active) {
+      return undefined;
+    }
+
+    const requestId = loadingState.requestId;
+    const timer = scheduleStillWorkingMessage(() => {
+      if (mountedRef.current) {
+        setLoadingState((current) => markEstimateStillWorking(current, requestId));
+      }
+    });
+
+    return () => clearTimeout(timer);
+  }, [loadingState.active, loadingState.requestId]);
+
+  useEffect(() => {
+    if (!loadingState.active) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      loadingPanelRef.current?.focus({ preventScroll: true });
+      loadingPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [loadingState.active, loadingState.requestId]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
+
+    if (!canStartEstimateSubmit(loadingState, e.currentTarget.checkValidity())) {
+      return;
+    }
+
+    const requestId = activeRequestId.current + 1;
+    activeRequestId.current = requestId;
+
+    setLoadingState(beginEstimateLoading(requestId));
     setResult(null);
 
     try {
@@ -30,17 +86,23 @@ export default function Home() {
       });
 
       const data = await res.json();
-      setResult(data);
+      if (mountedRef.current && activeRequestId.current === requestId) {
+        setResult(data);
+      }
     } catch {
-      setResult({
-        status: 'analysis_failed',
-        error: 'The estimate request could not be completed. Manual review is required.',
-        analysis: null,
-        pricing: null,
-        inputs: null
-      });
+      if (mountedRef.current && activeRequestId.current === requestId) {
+        setResult({
+          status: 'analysis_failed',
+          error: 'The estimate request could not be completed. Manual review is required.',
+          analysis: null,
+          pricing: null,
+          inputs: null
+        });
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoadingState((current) => finishEstimateLoading(current, requestId));
+      }
     }
   }
 
@@ -64,15 +126,18 @@ export default function Home() {
             accept="image/jpeg,image/png,image/webp"
             multiple
             required
+            disabled={loading}
             onChange={(e) => setFileCount(e.target.files?.length || 0)}
           />
-          <span className="helperText">{fileCount > 0 ? `${fileCount} image(s) selected` : 'Select up to 5 photos from different angles.'}</span>
+          <span className="helperText">
+            {loading ? 'Images received for this analysis.' : fileCount > 0 ? `${fileCount} image(s) selected` : 'Select up to 5 photos from different angles.'}
+          </span>
         </label>
 
         <div className="grid">
           <label>
             Distance tier
-            <select name="distanceTier" defaultValue="under25">
+            <select name="distanceTier" defaultValue="under25" disabled={loading}>
               <option value="under25">Within 25 miles - $130 minimum</option>
               <option value="25to40">25-40 miles - $145 minimum</option>
               <option value="40to65">40-65 miles - $175 minimum</option>
@@ -81,7 +146,7 @@ export default function Home() {
 
           <label>
             Job type
-            <select name="jobType" defaultValue="mixed junk">
+            <select name="jobType" defaultValue="mixed junk" disabled={loading}>
               <option value="mixed junk">Mixed junk</option>
               <option value="furniture">Furniture</option>
               <option value="cardboard only">Cardboard only</option>
@@ -94,7 +159,7 @@ export default function Home() {
 
           <label>
             Carry distance
-            <select name="carryDistance" defaultValue="short">
+            <select name="carryDistance" defaultValue="short" disabled={loading}>
               <option value="curbside">Curbside / driveway</option>
               <option value="short">Short carry</option>
               <option value="medium">Medium carry</option>
@@ -104,7 +169,7 @@ export default function Home() {
 
           <label>
             Stairs
-            <select name="stairs" defaultValue="none">
+            <select name="stairs" defaultValue="none" disabled={loading}>
               <option value="none">No stairs</option>
               <option value="some">Some stairs</option>
               <option value="heavy">Heavy stairs / upstairs furniture</option>
@@ -113,17 +178,45 @@ export default function Home() {
 
           <label>
             Workers planned
-            <input name="workers" type="number" min="1" max="6" defaultValue="1" />
+            <input name="workers" type="number" min="1" max="6" defaultValue="1" disabled={loading} />
           </label>
         </div>
 
         <label>
           Notes from employee
-          <textarea name="notes" maxLength={1000} placeholder="Example: client says mostly cardboard, garage access, no stairs, possible items in backyard..." />
+          <textarea
+            name="notes"
+            maxLength={1000}
+            placeholder="Example: client says mostly cardboard, garage access, no stairs, possible items in backyard..."
+            disabled={loading}
+          />
         </label>
 
-        <button disabled={loading}>{loading ? 'Analyzing...' : 'Analyze Job'}</button>
+        <button type="submit" disabled={isEstimateSubmitDisabled(loadingState)} aria-busy={loading}>
+          {loading ? 'Processing estimate...' : 'Analyze Job'}
+        </button>
       </form>
+
+      {loading && (
+        <section
+          ref={loadingPanelRef}
+          className="card loadingPanel"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          tabIndex={-1}
+        >
+          <div className="loader" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div>
+            <h2>{INITIAL_LOADING_MESSAGE}</h2>
+            <p>{getEstimateLoadingMessage(loadingState)}</p>
+          </div>
+        </section>
+      )}
 
       {result?.error && (
         <section className="card error">

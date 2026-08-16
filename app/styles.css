@@ -67,7 +67,17 @@ button {
   font-size: 16px;
   width: 100%;
 }
-button:disabled { opacity: .65; }
+button:disabled {
+  opacity: .82;
+  cursor: wait;
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  color: var(--muted);
+  background: #eef2eb;
+  cursor: not-allowed;
+}
 .quoteBox {
   background: #fff8dc;
   border: 1px solid #eed277;
@@ -117,6 +127,66 @@ ul { padding-left: 20px; }
   border-color: #eed277;
 }
 
+.loadingPanel {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border-color: #c7d5c5;
+  background: #f8fbf4;
+  outline: none;
+}
+
+.loadingPanel:focus-visible {
+  box-shadow: 0 0 0 4px rgba(244, 197, 66, .45), 0 12px 28px rgba(0,0,0,.06);
+}
+
+.loadingPanel h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  color: var(--green);
+}
+
+.loadingPanel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.loader {
+  width: 54px;
+  min-width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 2px solid #c7d5c5;
+  display: grid;
+  grid-template-columns: repeat(3, 8px);
+  place-content: center;
+  gap: 4px;
+  background: white;
+}
+
+.loader span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: loaderPulse 1s ease-in-out infinite;
+}
+
+.loader span:nth-child(2) { animation-delay: .14s; }
+.loader span:nth-child(3) { animation-delay: .28s; }
+
+@keyframes loaderPulse {
+  0%, 80%, 100% {
+    opacity: .35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-5px);
+  }
+}
+
 @media (max-width: 720px) {
   .hero {
     align-items: flex-start;
@@ -124,5 +194,19 @@ ul { padding-left: 20px; }
 
   .winstonLogo {
     width: 88px;
+  }
+
+  .loadingPanel {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader span {
+    animation: none;
+  }
+
+  .loadingPanel {
+    scroll-margin-top: 18px;
   }
 }
