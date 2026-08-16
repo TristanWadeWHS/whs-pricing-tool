@@ -1,4 +1,4 @@
-import { Result } from './result-types';
+import type { Result } from './result-types';
 
 export const ACCESS_EXPIRED_ERROR = 'Your internal access session may have expired. Refresh the page, sign in again, and retry the estimate.';
 export const UPLOAD_TOO_LARGE_ERROR = 'The selected photos are too large to submit. Use smaller images and try again.';
