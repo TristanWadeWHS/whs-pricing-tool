@@ -43,7 +43,12 @@ describe('priceJob regression baseline', () => {
   });
 
   it('clamps load percentage boundaries to the existing 10-200 range', () => {
-    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 0 })).baseLoadPrice).toBe(225);
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 0 })).baseLoadPrice).toBe(130);
     expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 250, estimatedLoadCount: 2.5 })).baseLoadPrice).toBe(900);
+  });
+
+  it('does not fabricate pricing from a missing load percentage fallback', () => {
+    const malformedAnalysis = { ...sampleAnalysis(), estimatedLoadPercent: undefined };
+    expect(() => priceJob(sampleInputs(), malformedAnalysis as any)).toThrow('valid estimated load percent');
   });
 });

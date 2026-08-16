@@ -16,7 +16,12 @@ export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
   const competitorFullLoadPrice = 650;
   const whsFullLoadPrice = 450;
 
-  const loadPercent = Math.max(10, Math.min(200, Number(analysis.estimatedLoadPercent || 50)));
+  const rawLoadPercent = Number(analysis.estimatedLoadPercent);
+  if (!Number.isFinite(rawLoadPercent)) {
+    throw new Error('Pricing requires a valid estimated load percent.');
+  }
+
+  const loadPercent = Math.max(10, Math.min(200, rawLoadPercent));
   let base = Math.round((loadPercent / 100) * whsFullLoadPrice);
 
   base = Math.max(base, minPrice);

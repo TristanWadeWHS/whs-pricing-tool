@@ -37,8 +37,9 @@ Do not commit real values.
 
 The internal UI and `/api/analyze` are protected by `proxy.ts`. Requests require either:
 
-- `x-internal-access-token` header matching `INTERNAL_ACCESS_TOKEN`, or
-- a one-time `?access_token=...` URL parameter, which sets an HTTP-only cookie.
+- browser HTTP Basic authentication, using any username and `INTERNAL_ACCESS_TOKEN` as the password,
+- `Authorization: Bearer <token>` for API clients, or
+- `x-internal-access-token` header matching `INTERNAL_ACCESS_TOKEN`.
 
 If `INTERNAL_ACCESS_TOKEN` is missing, the app fails closed with `503`.
 
@@ -59,6 +60,7 @@ Server-side request validation enforces:
 - image magic-byte checks
 - non-empty files
 - 8 MB maximum per image
+- 20 MB maximum total decoded image bytes per request
 - valid distance, job type, carry-distance, stairs, and worker-count fields
 - employee notes of 1000 characters or fewer
 
@@ -125,4 +127,3 @@ Do not reveal values in logs, screenshots, docs, or PR descriptions.
 ## Rollback
 
 Rollback is simple because pricing constants and formulas are preserved. Revert the deployment to the previous Vercel production deployment if access-gate or Structured Outputs behavior blocks internal operations.
-

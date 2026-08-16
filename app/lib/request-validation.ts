@@ -4,6 +4,7 @@ export const ESTIMATE_LIMITS = {
   minPhotos: 1,
   maxPhotos: 5,
   maxImageBytes: 8 * 1024 * 1024,
+  maxTotalImageBytes: 20 * 1024 * 1024,
   maxNotesLength: 1000,
   minWorkers: 1,
   maxWorkers: 6,
@@ -86,6 +87,7 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
   }
 
   const photos = [];
+  let totalImageBytes = 0;
   for (const file of files) {
     if (!mimeTypes.has(file.type)) {
       return invalid('Photos must be JPEG, PNG, or WebP images.');
@@ -98,6 +100,11 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
 
     if (bytes.byteLength > ESTIMATE_LIMITS.maxImageBytes) {
       return invalid('Each photo must be 8 MB or smaller.');
+    }
+
+    totalImageBytes += bytes.byteLength;
+    if (totalImageBytes > ESTIMATE_LIMITS.maxTotalImageBytes) {
+      return invalid('Uploaded photos must be 20 MB or smaller in total.');
     }
 
     if (!matchesImageSignature(bytes, file.type)) {
@@ -156,4 +163,3 @@ function ascii(bytes: Uint8Array, start: number, end: number) {
 function invalid(error: string): ValidationResult {
   return { ok: false, status: 400, error };
 }
-

@@ -16,6 +16,19 @@ describe('estimate request validation', () => {
     await expect(validateEstimateForm(makeForm({}, [new File([pngBytes()], 'x.gif', { type: 'image/gif' })]))).resolves.toMatchObject({ ok: false });
   });
 
+  it('rejects multiple individually valid images over the total decoded-size limit', async () => {
+    const largePng = () => {
+      const bytes = new Uint8Array(7 * 1024 * 1024);
+      bytes.set(pngBytes());
+      return bytes;
+    };
+    const files = [pngFile('a.png', largePng()), pngFile('b.png', largePng()), pngFile('c.png', largePng())];
+    await expect(validateEstimateForm(makeForm({}, files))).resolves.toMatchObject({
+      ok: false,
+      error: 'Uploaded photos must be 20 MB or smaller in total.'
+    });
+  });
+
   it('rejects mismatched signatures and malformed selection fields', async () => {
     await expect(validateEstimateForm(makeForm({}, [new File([pngBytes()], 'fake.jpg', { type: 'image/jpeg' })]))).resolves.toMatchObject({ ok: false });
     await expect(validateEstimateForm(makeForm({ workers: 0 }))).resolves.toMatchObject({ ok: false });
@@ -31,4 +44,3 @@ describe('estimate request validation', () => {
     expect(matchesImageSignature(pngBytes(), 'image/jpeg')).toBe(false);
   });
 });
-

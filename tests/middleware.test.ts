@@ -19,6 +19,7 @@ describe('temporary internal access middleware', () => {
     process.env.INTERNAL_ACCESS_TOKEN = 'test-token';
     const response = proxy(new NextRequest('https://example.test/'));
     expect(response.status).toBe(401);
+    expect(response.headers.get('www-authenticate')).toContain('Basic');
   });
 
   it('allows requests with the internal access header', () => {
@@ -28,5 +29,31 @@ describe('temporary internal access middleware', () => {
     });
     const response = proxy(request);
     expect(response.status).toBe(200);
+  });
+
+  it('allows requests with browser basic authentication', () => {
+    process.env.INTERNAL_ACCESS_TOKEN = 'test-token';
+    const credentials = btoa('employee:test-token');
+    const request = new NextRequest('https://example.test/', {
+      headers: { authorization: `Basic ${credentials}` }
+    });
+    const response = proxy(request);
+    expect(response.status).toBe(200);
+  });
+
+  it('allows API requests with bearer authentication', () => {
+    process.env.INTERNAL_ACCESS_TOKEN = 'test-token';
+    const request = new NextRequest('https://example.test/api/analyze', {
+      headers: { authorization: 'Bearer test-token' }
+    });
+    const response = proxy(request);
+    expect(response.status).toBe(200);
+  });
+
+  it('does not accept URL query-string tokens', () => {
+    process.env.INTERNAL_ACCESS_TOKEN = 'test-token';
+    const response = proxy(new NextRequest('https://example.test/?access_token=test-token'));
+    expect(response.status).toBe(401);
+    expect(response.headers.get('set-cookie')).toBeNull();
   });
 });
