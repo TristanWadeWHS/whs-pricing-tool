@@ -1,53 +1,129 @@
-# Wade Home Services Pricing Tool MVP
+# Wade Home Services Pricing Tool
 
-Internal web app for AI-assisted junk removal pricing.
+Internal AI-assisted pricing system for Wade Home Services junk removal and hauling estimates.
 
-## Local setup
+This application is not a trained Wade Home Services machine-learning model. It uses AI photo analysis plus deterministic TypeScript pricing rules. Historical completed-job data is being prepared for future reporting, comparable-job retrieval, statistical baselines, and possible supervised machine learning after validation.
 
-1. Install Node.js.
-2. Open this folder in VS Code or terminal.
-3. Run:
+## Runtime
+
+- Node.js 24.x on Vercel
+- Next.js 16
+- React 19
+- OpenAI Responses API
+- Google Sheets API read-only scope for historical-data discovery
+
+## Local Development
 
 ```bash
 npm install
-```
-
-4. Create `.env.local` from `.env.example`:
-
-```bash
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-5.5-mini
-```
-
-5. Run:
-
-```bash
 npm run dev
 ```
 
-6. Open:
+Open `http://localhost:3000` with a valid internal access token configured.
 
-```bash
-http://localhost:3000
-```
+## Required Environment Variables
 
-## Deploy to Vercel
+Do not commit real values.
 
-1. Push this folder to GitHub.
-2. Import the repo into Vercel.
-3. Add environment variable `OPENAI_API_KEY` in Vercel.
-4. Deploy.
+- `OPENAI_API_KEY`: server-side OpenAI API key.
+- `OPENAI_MODEL`: configurable analysis model. Default in code is `gpt-5.6`.
+- `DIRECT_QUOTE_CONFIDENCE_THRESHOLD`: provisional direct-quote threshold. Defaults to `85`; this is not statistically validated.
+- `INTERNAL_ACCESS_TOKEN`: temporary server-side access gate token for the internal MVP.
+- `GOOGLE_SPREADSHEET_ID`: canonical configured historical spreadsheet ID.
+- `GOOGLE_SHEET_TAB`: canonical configured historical worksheet name.
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: server-side service-account JSON for read-only Google Sheets access. Preserve escaped private-key newlines; never expose or log this value.
 
-## Pricing rules included
+## Access Gate
+
+The internal UI and `/api/analyze` are protected by `proxy.ts`. Requests require either:
+
+- browser HTTP Basic authentication, using any username and `INTERNAL_ACCESS_TOKEN` as the password,
+- `Authorization: Bearer <token>` for API clients, or
+- `x-internal-access-token` header matching `INTERNAL_ACCESS_TOKEN`.
+
+If `INTERNAL_ACCESS_TOKEN` is missing, the app fails closed with `503`.
+
+This is a temporary internal MVP gate, not a full authentication system.
+
+## OpenAI Analysis
+
+The app uses the OpenAI Responses API with strict Structured Outputs through a Zod schema. The configured model remains controlled by `OPENAI_MODEL`; the default is `gpt-5.6` for the strongest internal-quality baseline.
+
+Malformed model output, parsing failures, provider errors, timeouts, or missing OpenAI configuration return `analysis_failed`. They do not fabricate a generic load estimate or firm quote.
+
+## Validation Limits
+
+Server-side request validation enforces:
+
+- 1-5 photos
+- JPEG, PNG, or WebP MIME types
+- image magic-byte checks
+- non-empty files
+- 8 MB maximum per image
+- 20 MB maximum total decoded image bytes per request
+- valid distance, job type, carry-distance, stairs, and worker-count fields
+- employee notes of 1000 characters or fewer
+
+Browser validation is only a convenience; the server is authoritative.
+
+## Quote Statuses
+
+Results can be:
+
+- `analysis_failed`: no AI estimate is available; manual review is required.
+- `needs_manager_review`: high-risk, ambiguous, special-disposal, poor-photo, or multi-load cases.
+- `conditional_estimate`: useful estimate, but assumptions must be confirmed before a firm quote.
+- `direct_quote_eligible`: meets provisional confidence and risk criteria.
+
+Confidence alone cannot create a direct quote. Heavy/restricted materials, demolition, multi-load jobs, poor photos, high hidden-debris uncertainty, and material warnings can require review.
+
+## Pricing Rules
+
+This PR preserves existing provisional pricing amounts and formulas:
 
 - $130 minimum within 25 miles
-- $145 minimum for 25–40 miles
-- $175 minimum for 40–65 miles
+- $145 minimum for 25-40 miles
+- $175 minimum for 40-65 miles
 - $450 full-load baseline
-- Heavy/demo debris risk adjustments
-- Difficulty/access/stairs/carry adjustments
-- Cardboard-only discount
+- current fixed adjustments
+- current cardboard discount
+- current hard-coded competitor baseline, still treated as provisional
 
-## Important
+Known pricing-model issues are intentionally left for later PRs.
 
-This is an estimate tool. Final quote should be reviewed by a manager when photos are unclear, heavy debris is possible, or hidden materials may exist.
+## Historical Data
+
+Historical completed-job data is configured through Google Sheets environment variables and accessed only server-side with the read-only Sheets scope.
+
+The redacted audit and future data-design plan live in `docs/historical-data-audit.md`.
+
+No raw spreadsheet export, customer rows, credentials, customer photos, or trained model are committed.
+
+## Commands
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+`npm run lint` currently runs TypeScript checking. Add ESLint rules in a later hardening PR if desired.
+
+## Vercel Checklist
+
+Before deploying a reviewed change, confirm these keys exist in the target Vercel environment:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `DIRECT_QUOTE_CONFIDENCE_THRESHOLD`
+- `INTERNAL_ACCESS_TOKEN`
+- `GOOGLE_SPREADSHEET_ID`
+- `GOOGLE_SHEET_TAB`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
+
+Do not reveal values in logs, screenshots, docs, or PR descriptions.
+
+## Rollback
+
+Rollback is simple because pricing constants and formulas are preserved. Revert the deployment to the previous Vercel production deployment if access-gate or Structured Outputs behavior blocks internal operations.

@@ -3,6 +3,9 @@
 import { useState } from 'react';
 
 type Result = {
+  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
+  statusReasons?: string[];
+  confidenceThreshold?: number;
   analysis: any;
   pricing: any;
   inputs: any;
@@ -19,16 +22,26 @@ export default function Home() {
     setLoading(true);
     setResult(null);
 
-    const formData = new FormData(e.currentTarget);
+    try {
+      const formData = new FormData(e.currentTarget);
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData
+      });
 
-    const res = await fetch('/api/analyze', {
-      method: 'POST',
-      body: formData
-    });
-
-    const data = await res.json();
-    setResult(data);
-    setLoading(false);
+      const data = await res.json();
+      setResult(data);
+    } catch {
+      setResult({
+        status: 'analysis_failed',
+        error: 'The estimate request could not be completed. Manual review is required.',
+        analysis: null,
+        pricing: null,
+        inputs: null
+      });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -44,11 +57,11 @@ export default function Home() {
 
       <form className="card form" onSubmit={submit}>
         <label>
-          Job photos, 1–5 images
+          Job photos, 1-5 images
           <input
             name="photos"
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             multiple
             required
             onChange={(e) => setFileCount(e.target.files?.length || 0)}
@@ -60,9 +73,9 @@ export default function Home() {
           <label>
             Distance tier
             <select name="distanceTier" defaultValue="under25">
-              <option value="under25">Within 25 miles — $130 minimum</option>
-              <option value="25to40">25–40 miles — $145 minimum</option>
-              <option value="40to65">40–65 miles — $175 minimum</option>
+              <option value="under25">Within 25 miles - $130 minimum</option>
+              <option value="25to40">25-40 miles - $145 minimum</option>
+              <option value="40to65">40-65 miles - $175 minimum</option>
             </select>
           </label>
 
@@ -106,27 +119,36 @@ export default function Home() {
 
         <label>
           Notes from employee
-          <textarea name="notes" placeholder="Example: client says mostly cardboard, garage access, no stairs, possible items in backyard..." />
+          <textarea name="notes" maxLength={1000} placeholder="Example: client says mostly cardboard, garage access, no stairs, possible items in backyard..." />
         </label>
 
         <button disabled={loading}>{loading ? 'Analyzing...' : 'Analyze Job'}</button>
       </form>
 
-      {result?.error && <section className="card error">{result.error}</section>}
+      {result?.error && (
+        <section className="card error">
+          <h3>Analysis Not Available</h3>
+          <p>{result.error}</p>
+          {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
+        </section>
+      )}
 
       {result?.analysis && result?.pricing && (
         <section className="card result">
           <div className="quoteBox">
-            <p>Suggested Quote</p>
+            <p>{result.status === 'direct_quote_eligible' ? 'Suggested Quote' : 'Internal Estimate'}</p>
             <h2>${result.pricing.suggestedQuote}</h2>
             <span>{result.pricing.recommendedRange}</span>
           </div>
 
           <div className="summaryBox">
             <h3>Estimate Quality</h3>
+            <p><b>Status:</b> {formatStatus(result.status)}</p>
             <p><b>Confidence:</b> {result.analysis.confidencePercent}%</p>
+            <p><b>Direct-quote threshold:</b> {result.confidenceThreshold}% provisional</p>
             <p><b>Photo angle quality:</b> {result.analysis.photoAngleQuality}</p>
             <p><b>Potential hidden debris risk:</b> {result.analysis.hiddenDebrisRisk}</p>
+            {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
           </div>
 
           <div className="competitorBox">
@@ -138,6 +160,7 @@ export default function Home() {
             <div>
               <h3>AI Photo Estimate</h3>
               <p><b>Load:</b> {result.analysis.estimatedLoadRange} ({result.analysis.estimatedLoadPercent}%)</p>
+              <p><b>Estimated loads:</b> {result.analysis.estimatedLoadCount}</p>
               <p><b>Material:</b> {result.analysis.materialType}</p>
               <p><b>Difficulty:</b> {result.analysis.difficulty}</p>
               <p><b>Heavy risk:</b> {result.analysis.heavyDebrisRisk}</p>
@@ -155,16 +178,28 @@ export default function Home() {
           <h3>Visible Items</h3>
           <ul>{result.analysis.visibleItems?.map((x: string) => <li key={x}>{x}</li>)}</ul>
 
+          <h3>Observed Facts</h3>
+          <ul>{result.analysis.observedFacts?.map((x: string) => <li key={x}>{x}</li>)}</ul>
+
+          <h3>Assumptions and Uncertainty</h3>
+          <ul>{result.analysis.assumptions?.map((x: string) => <li key={x}>{x}</li>)}</ul>
+          <ul>{result.analysis.uncertaintyNotes?.map((x: string) => <li key={x}>{x}</li>)}</ul>
+
           <h3>Warnings</h3>
           <ul>{result.analysis.warnings?.map((x: string) => <li key={x}>{x}</li>)}</ul>
 
           <h3>Questions to Ask Client</h3>
           <ul>{result.analysis.questionsToAsk?.map((x: string) => <li key={x}>{x}</li>)}</ul>
 
-          <h3>Copy/Paste Customer Message</h3>
+          <h3>{result.status === 'direct_quote_eligible' ? 'Copy/Paste Customer Message' : 'Review Message'}</h3>
           <textarea readOnly value={result.pricing.customerMessage} />
         </section>
       )}
     </main>
   );
+}
+
+function formatStatus(status?: string) {
+  if (!status) return 'Unknown';
+  return status.replaceAll('_', ' ');
 }
