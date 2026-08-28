@@ -103,6 +103,10 @@ ul { padding-left: 20px; }
   font-weight: 400;
 }
 
+.photoErrorText {
+  color: #a10000;
+}
+
 .summaryBox,
 .competitorBox {
   margin-top: 16px;

@@ -55,6 +55,18 @@ Malformed model output, parsing failures, provider errors, timeouts, or missing 
 
 ## Validation Limits
 
+The browser optimizes selected photos locally before upload. Normal large phone photos are resized and re-encoded as JPEG in the page session; originals are not uploaded to any third-party optimization service.
+
+Browser optimization uses:
+
+- 2048 px initial maximum long edge
+- 1280 px minimum long edge
+- JPEG output quality from 0.84 down to 0.68
+- a dynamic per-image budget based on the number of selected photos
+- 3.5 MB maximum total processed image bytes per request
+
+HEIC/HEIF files are accepted for local browser decoding where the current browser supports them. If the browser cannot decode a HEIC/HEIF photo, the UI asks the employee to switch the iPhone Camera Format to Most Compatible or upload a JPEG.
+
 Server-side request validation enforces:
 
 - 1-5 photos
@@ -66,7 +78,7 @@ Server-side request validation enforces:
 - valid distance, job type, carry-distance, stairs, and worker-count fields
 - employee notes of 1000 characters or fewer
 
-Browser validation catches oversized selections before submission; the server remains authoritative.
+Browser optimization and validation catch oversized selections before submission; the server remains authoritative.
 
 ## Quote Statuses
 
