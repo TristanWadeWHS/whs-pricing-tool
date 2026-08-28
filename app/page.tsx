@@ -1,16 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-
-type Result = {
-  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
-  statusReasons?: string[];
-  confidenceThreshold?: number;
-  analysis: any;
-  pricing: any;
-  inputs: any;
-  error?: string;
-};
+import { failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
+import { getPhotoSizeRejection } from './lib/estimate-limits';
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
@@ -19,6 +11,14 @@ export default function Home() {
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    const photoInput = e.currentTarget.elements.namedItem('photos') as HTMLInputElement | null;
+    const sizeRejection = getPhotoSizeRejection(photoInput?.files || []);
+    if (sizeRejection) {
+      setResult(failedResult(sizeRejection, 'request_too_large'));
+      return;
+    }
+
     setLoading(true);
     setResult(null);
 
@@ -26,19 +26,18 @@ export default function Home() {
       const formData = new FormData(e.currentTarget);
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        body: formData
+        body: formData,
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          accept: 'application/json'
+        }
       });
 
-      const data = await res.json();
+      const data = await readAnalyzeResponse(res);
       setResult(data);
     } catch {
-      setResult({
-        status: 'analysis_failed',
-        error: 'The estimate request could not be completed. Manual review is required.',
-        analysis: null,
-        pricing: null,
-        inputs: null
-      });
+      setResult(failedResult('The estimate request could not be completed. Manual review is required.', 'network_error'));
     } finally {
       setLoading(false);
     }

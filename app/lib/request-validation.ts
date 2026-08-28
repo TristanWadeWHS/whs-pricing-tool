@@ -1,10 +1,11 @@
 import { JobInputs } from './pricing';
+import { IMAGE_TOO_LARGE_MESSAGE, MAX_ESTIMATE_IMAGE_BYTES, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from './estimate-limits';
 
 export const ESTIMATE_LIMITS = {
   minPhotos: 1,
   maxPhotos: 5,
-  maxImageBytes: 8 * 1024 * 1024,
-  maxTotalImageBytes: 20 * 1024 * 1024,
+  maxImageBytes: MAX_ESTIMATE_IMAGE_BYTES,
+  maxTotalImageBytes: SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES,
   maxNotesLength: 1000,
   minWorkers: 1,
   maxWorkers: 6,
@@ -99,12 +100,12 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
     }
 
     if (bytes.byteLength > ESTIMATE_LIMITS.maxImageBytes) {
-      return invalid('Each photo must be 8 MB or smaller.');
+      return invalid('Each photo must be 3 MB or smaller.');
     }
 
     totalImageBytes += bytes.byteLength;
     if (totalImageBytes > ESTIMATE_LIMITS.maxTotalImageBytes) {
-      return invalid('Uploaded photos must be 20 MB or smaller in total.');
+      return invalid(IMAGE_TOO_LARGE_MESSAGE);
     }
 
     if (!matchesImageSignature(bytes, file.type)) {

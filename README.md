@@ -4,6 +4,8 @@ Internal AI-assisted pricing system for Wade Home Services junk removal and haul
 
 This application is not a trained Wade Home Services machine-learning model. It uses AI photo analysis plus deterministic TypeScript pricing rules. Historical completed-job data is being prepared for future reporting, comparable-job retrieval, statistical baselines, and possible supervised machine learning after validation.
 
+Future Codex sessions must read `AGENTS.md` before modifying this repository. Recovery and release discipline is documented in `docs/development-safety.md`.
+
 ## Runtime
 
 - Node.js 24.x on Vercel
@@ -59,12 +61,12 @@ Server-side request validation enforces:
 - JPEG, PNG, or WebP MIME types
 - image magic-byte checks
 - non-empty files
-- 8 MB maximum per image
-- 20 MB maximum total decoded image bytes per request
+- 3 MB maximum per image
+- 3.5 MB maximum total decoded image bytes per request, kept below Vercel's 4.5 MB function payload limit
 - valid distance, job type, carry-distance, stairs, and worker-count fields
 - employee notes of 1000 characters or fewer
 
-Browser validation is only a convenience; the server is authoritative.
+Browser validation catches oversized selections before submission; the server remains authoritative.
 
 ## Quote Statuses
 
@@ -127,3 +129,5 @@ Do not reveal values in logs, screenshots, docs, or PR descriptions.
 ## Rollback
 
 Rollback is simple because pricing constants and formulas are preserved. Revert the deployment to the previous Vercel production deployment if access-gate or Structured Outputs behavior blocks internal operations.
+
+Every material PR must include the starting baseline, Preview URL, browser verification, manual verification requirement, rollback commit, and rollback deployment.
