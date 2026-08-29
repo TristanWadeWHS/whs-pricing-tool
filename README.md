@@ -109,9 +109,22 @@ Known pricing-model issues are intentionally left for later PRs.
 
 Historical completed-job data is configured through Google Sheets environment variables and accessed only server-side with the read-only Sheets scope.
 
-The redacted audit and future data-design plan live in `docs/historical-data-audit.md`.
+The redacted audit and future data-design plan live in:
+
+- `docs/historical-data-audit.md`
+- `docs/historical-data-schema.md`
+- `docs/ml-readiness-and-benchmark-plan.md`
+- `docs/continuous-learning-policy.md`
 
 No raw spreadsheet export, customer rows, credentials, customer photos, or trained model are committed.
+
+Run the local aggregate audit only after a safe gitignored `.env.local` is configured:
+
+```bash
+npm run audit:historical-data
+```
+
+The command exits nonzero when credentials or read-only access are unavailable.
 
 ## Commands
 
@@ -119,6 +132,7 @@ No raw spreadsheet export, customer rows, credentials, customer photos, or train
 npm run lint
 npm run typecheck
 npm test
+npm run audit:historical-data
 npm run build
 ```
 
