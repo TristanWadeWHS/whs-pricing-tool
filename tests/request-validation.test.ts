@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { IMAGE_TOO_LARGE_MESSAGE } from '../app/lib/estimate-limits';
 import { matchesImageSignature, validateEstimateForm } from '../app/lib/request-validation';
 import { jpegFile, makeForm, pngBytes, pngFile, webpFile } from './helpers';
 
@@ -12,20 +13,23 @@ describe('estimate request validation', () => {
   it('rejects too many files, empty files, oversized files, and unsupported MIME types', async () => {
     await expect(validateEstimateForm(makeForm({}, Array.from({ length: 6 }, (_, i) => pngFile(`p${i}.png`))))).resolves.toMatchObject({ ok: false });
     await expect(validateEstimateForm(makeForm({}, [new File([new Uint8Array()], 'empty.png', { type: 'image/png' })]))).resolves.toMatchObject({ ok: false });
-    await expect(validateEstimateForm(makeForm({}, [pngFile('large.png', new Uint8Array(9 * 1024 * 1024))]))).resolves.toMatchObject({ ok: false });
+    await expect(validateEstimateForm(makeForm({}, [pngFile('large.png', new Uint8Array(4 * 1024 * 1024))]))).resolves.toMatchObject({
+      ok: false,
+      error: 'Each photo must be 3 MB or smaller.'
+    });
     await expect(validateEstimateForm(makeForm({}, [new File([pngBytes()], 'x.gif', { type: 'image/gif' })]))).resolves.toMatchObject({ ok: false });
   });
 
   it('rejects multiple individually valid images over the total decoded-size limit', async () => {
     const largePng = () => {
-      const bytes = new Uint8Array(7 * 1024 * 1024);
+      const bytes = new Uint8Array(2 * 1024 * 1024);
       bytes.set(pngBytes());
       return bytes;
     };
-    const files = [pngFile('a.png', largePng()), pngFile('b.png', largePng()), pngFile('c.png', largePng())];
+    const files = [pngFile('a.png', largePng()), pngFile('b.png', largePng())];
     await expect(validateEstimateForm(makeForm({}, files))).resolves.toMatchObject({
       ok: false,
-      error: 'Uploaded photos must be 20 MB or smaller in total.'
+      error: IMAGE_TOO_LARGE_MESSAGE
     });
   });
 

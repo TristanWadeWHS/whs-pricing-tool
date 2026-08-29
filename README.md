@@ -4,6 +4,8 @@ Internal AI-assisted pricing system for Wade Home Services junk removal and haul
 
 This application is not a trained Wade Home Services machine-learning model. It uses AI photo analysis plus deterministic TypeScript pricing rules. Historical completed-job data is being prepared for future reporting, comparable-job retrieval, statistical baselines, and possible supervised machine learning after validation.
 
+Future Codex sessions must read `AGENTS.md` before modifying this repository. Recovery and release discipline is documented in `docs/development-safety.md`.
+
 ## Runtime
 
 - Node.js 24.x on Vercel
@@ -53,18 +55,30 @@ Malformed model output, parsing failures, provider errors, timeouts, or missing 
 
 ## Validation Limits
 
+The browser optimizes selected photos locally before upload. Normal large phone photos are resized and re-encoded as JPEG in the page session; originals are not uploaded to any third-party optimization service.
+
+Browser optimization uses:
+
+- 2048 px initial maximum long edge
+- 1280 px minimum long edge
+- JPEG output quality from 0.84 down to 0.68
+- a dynamic per-image budget based on the number of selected photos
+- 3.5 MB maximum total processed image bytes per request
+
+HEIC/HEIF files are accepted for local browser decoding where the current browser supports them. If the browser cannot decode a HEIC/HEIF photo, the UI asks the employee to switch the iPhone Camera Format to Most Compatible or upload a JPEG.
+
 Server-side request validation enforces:
 
 - 1-5 photos
 - JPEG, PNG, or WebP MIME types
 - image magic-byte checks
 - non-empty files
-- 8 MB maximum per image
-- 20 MB maximum total decoded image bytes per request
+- 3 MB maximum per image
+- 3.5 MB maximum total decoded image bytes per request, kept below Vercel's 4.5 MB function payload limit
 - valid distance, job type, carry-distance, stairs, and worker-count fields
 - employee notes of 1000 characters or fewer
 
-Browser validation is only a convenience; the server is authoritative.
+Browser optimization and validation catch oversized selections before submission; the server remains authoritative.
 
 ## Quote Statuses
 
@@ -127,3 +141,5 @@ Do not reveal values in logs, screenshots, docs, or PR descriptions.
 ## Rollback
 
 Rollback is simple because pricing constants and formulas are preserved. Revert the deployment to the previous Vercel production deployment if access-gate or Structured Outputs behavior blocks internal operations.
+
+Every material PR must include the starting baseline, Preview URL, browser verification, manual verification requirement, rollback commit, and rollback deployment.

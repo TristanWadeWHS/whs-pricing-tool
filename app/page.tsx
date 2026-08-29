@@ -1,44 +1,104 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
+import { getPhotoSizeRejection } from './lib/estimate-limits';
+import {
+  buildAnalyzeFormWithOptimizedPhotos,
+  optimizePhotoSelection,
+  OPTIMIZATION_MESSAGES,
+  type OptimizedPhoto
+} from './lib/photo-optimizer';
 
-type Result = {
-  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
-  statusReasons?: string[];
-  confidenceThreshold?: number;
-  analysis: any;
-  pricing: any;
-  inputs: any;
-  error?: string;
-};
+type PhotoState =
+  | { status: 'idle'; message: string; photos: OptimizedPhoto[] }
+  | { status: 'optimizing'; message: string; photos: OptimizedPhoto[] }
+  | { status: 'ready'; message: string; photos: OptimizedPhoto[] }
+  | { status: 'error'; message: string; photos: OptimizedPhoto[] };
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [fileCount, setFileCount] = useState(0);
+  const [photoState, setPhotoState] = useState<PhotoState>({ status: 'idle', message: '', photos: [] });
+  const selectionId = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      selectionId.current += 1;
+    };
+  }, []);
+
+  async function handlePhotoChange(files: FileList | null) {
+    const selectedFiles = Array.from(files || []);
+    const currentSelectionId = selectionId.current + 1;
+    selectionId.current = currentSelectionId;
+    setFileCount(selectedFiles.length);
+    setResult(null);
+
+    if (selectedFiles.length === 0) {
+      setPhotoState({ status: 'idle', message: '', photos: [] });
+      return;
+    }
+
+    setPhotoState({ status: 'optimizing', message: OPTIMIZATION_MESSAGES.optimizing, photos: [] });
+    const optimized = await optimizePhotoSelection(selectedFiles);
+
+    if (selectionId.current !== currentSelectionId) return;
+
+    if (optimized.ok === false) {
+      setPhotoState({ status: 'error', message: optimized.error, photos: [] });
+      return;
+    }
+
+    setPhotoState({ status: 'ready', message: optimized.message, photos: optimized.photos });
+  }
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    if (photoState.status === 'optimizing') {
+      setResult(failedResult('Please wait until photos finish optimizing.', 'photos_optimizing'));
+      return;
+    }
+
+    if (photoState.status === 'error') {
+      setResult(failedResult(photoState.message, 'photo_optimization_failed'));
+      return;
+    }
+
+    if (photoState.status !== 'ready' || photoState.photos.length === 0) {
+      setResult(failedResult('Upload at least one photo.', 'missing_photos'));
+      return;
+    }
+
+    const processedFiles = photoState.photos.map((photo) => photo.file);
+    const sizeRejection = getPhotoSizeRejection(processedFiles);
+    if (sizeRejection) {
+      setResult(failedResult(sizeRejection, 'request_too_large'));
+      return;
+    }
+
     setLoading(true);
     setResult(null);
 
     try {
-      const formData = new FormData(e.currentTarget);
+      const formData = buildAnalyzeFormWithOptimizedPhotos(new FormData(e.currentTarget), processedFiles);
+
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        body: formData
+        body: formData,
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          accept: 'application/json'
+        }
       });
 
-      const data = await res.json();
+      const data = await readAnalyzeResponse(res);
       setResult(data);
     } catch {
-      setResult({
-        status: 'analysis_failed',
-        error: 'The estimate request could not be completed. Manual review is required.',
-        analysis: null,
-        pricing: null,
-        inputs: null
-      });
+      setResult(failedResult('The estimate request could not be completed. Manual review is required.', 'network_error'));
     } finally {
       setLoading(false);
     }
@@ -61,12 +121,23 @@ export default function Home() {
           <input
             name="photos"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
             multiple
             required
-            onChange={(e) => setFileCount(e.target.files?.length || 0)}
+            aria-describedby="photo-help photo-status"
+            onChange={(e) => void handlePhotoChange(e.target.files)}
           />
-          <span className="helperText">{fileCount > 0 ? `${fileCount} image(s) selected` : 'Select up to 5 photos from different angles.'}</span>
+          <span id="photo-help" className="helperText">{fileCount > 0 ? `${fileCount} image(s) selected` : 'Select up to 5 photos from different angles.'}</span>
+          {photoState.message ? (
+            <span
+              id="photo-status"
+              className={photoState.status === 'error' ? 'helperText photoErrorText' : 'helperText'}
+              role="status"
+              aria-live="polite"
+            >
+              {photoState.message}
+            </span>
+          ) : null}
         </label>
 
         <div className="grid">
@@ -122,7 +193,9 @@ export default function Home() {
           <textarea name="notes" maxLength={1000} placeholder="Example: client says mostly cardboard, garage access, no stairs, possible items in backyard..." />
         </label>
 
-        <button disabled={loading}>{loading ? 'Analyzing...' : 'Analyze Job'}</button>
+        <button disabled={loading || photoState.status === 'optimizing' || photoState.status === 'error'} aria-busy={loading || photoState.status === 'optimizing'}>
+          {photoState.status === 'optimizing' ? OPTIMIZATION_MESSAGES.optimizing : loading ? 'Analyzing...' : 'Analyze Job'}
+        </button>
       </form>
 
       {result?.error && (
