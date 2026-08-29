@@ -7,6 +7,7 @@ import {
   getGoogleConfigPresence,
   normalizeHeader,
   parseAuditDate,
+  parseBooleanLike,
   parseCurrency,
   parsePercent,
   parseServiceAccountJson,
@@ -67,6 +68,23 @@ describe('Google Sheets audit configuration', () => {
     expect(parseCurrency('(25)')).toBe(-25);
     expect(parseCurrency('n/a')).toBeNull();
     expect(parsePercent('85%')).toBe(0.85);
+    expect(parseBooleanLike('Yes')).toBe(true);
+    expect(parseAuditDate('No')).toBeNull();
+  });
+
+  it('treats completed-job price and yes/no operational flags as modelable audit fields', () => {
+    expect(canonicalFieldForHeader('Price')).toBe('final_completed_price');
+    const audit = analyzeHistoricalRows([
+      ['Date', 'Price', 'Stairs', 'Won Job'],
+      ['2026-06-01', '$250', 'No', 'Yes']
+    ], {
+      spreadsheetId: EXPECTED_HISTORICAL_SPREADSHEET_ID,
+      tabName: 'ML Data',
+      retrievalTimestamp: '2026-08-29T12:00:00.000Z'
+    });
+    expect(audit.schema?.find((column) => column.canonicalField === 'stairs')?.inferredType).toBe('boolean');
+    expect(audit.outcomeAvailability?.finalCompletedPrice.available).toBe(true);
+    expect(audit.outcomeAvailability?.quoteAccepted.available).toBe(true);
   });
 
   it('classifies private and sensitive fields without reading values', () => {

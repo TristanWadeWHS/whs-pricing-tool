@@ -22,10 +22,10 @@ The learned model recommends. It does not bypass Wade Home Services pricing safe
 
 ## Retraining Triggers
 
-Use the more conservative trigger until real data volume is known:
+Use the more conservative trigger for the current 70-record dataset:
 
 - Monthly only when enough new validated jobs exist, or
-- after 25-50 new validated completed jobs, whichever is later, or
+- after approximately 15-20 new validated completed jobs, whichever is later, or
 - earlier only for material drift confirmed by review.
 
 Small batches should update reports and comparable-job retrieval first. They should not automatically replace a Production model.
@@ -64,3 +64,18 @@ A challenger can be promoted only after:
 
 Keep the deterministic pricing rules and the prior champion model available. A rollback may disable model recommendations entirely and return to rules-only pricing. Rollback decisions should preserve the triggering inputs, model version, snapshot ID, and redacted error category for later review.
 
+## Future Public Estimator Abuse Controls
+
+A future customer-facing estimator must not expose internal formulas, comparable records, cost breakdowns, margin strategy, model weights, confidence thresholds, employee notes, manager notes, or exact pricing logic. It should use layered abuse controls: rate limiting, bot protection, service-area validation, staged email or phone verification, per-session estimate limits, privacy-appropriate device/session signals, duplicate request detection, suspicious-volume detection, scraping detection, anomaly monitoring, internal audit logs, progressive friction, manager review for unusual requests, public ranges instead of unnecessary precision, and strict separation between public and internal APIs.
+
+Competitors cannot be completely prevented from submitting legitimate-looking requests. The practical goal is to discourage automated scraping, limit exposed information, detect abuse, and preserve internal pricing intelligence.
+
+## Future Premium UI
+
+A later UI phase should be modern, high-tech, trustworthy, mobile-first, fast, accessible, visually polished, and consistent with Wade Home Services branding. It should clearly communicate photo processing, estimate progress, estimate ranges, and manager-review status. It must start from the verified working Production version, not the abandoned PR #2 loading implementation, and must receive isolated-branch Preview/browser testing before release.
+
+## Future Booking Flow
+
+A later booking flow can move qualified customers from estimate to scheduling: upload photos/details, receive an estimate or review status, confirm scope, select an appointment, enter verified contact/service information, accept terms and pricing conditions, pay a deposit if required, receive confirmation/reminders, and send final outcomes back to the historical dataset.
+
+Do not implement booking until the internal pricing system is stable and the public security/abuse design is approved.

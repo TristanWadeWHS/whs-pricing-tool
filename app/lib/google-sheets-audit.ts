@@ -245,7 +245,8 @@ export function canonicalFieldForHeader(header: string) {
   if (compact.includes('status')) return 'status';
   if (compact.includes('quote') && compact.includes('price')) return 'final_quoted_price';
   if (compact.includes('final') && (compact.includes('price') || compact.includes('revenue'))) return 'final_completed_price';
-  if (compact.includes('price') || compact.includes('revenue') || compact.includes('amount')) return 'price';
+  if (normalized === 'price' || compact.includes('revenue') || compact.includes('amount')) return 'final_completed_price';
+  if (compact.includes('price')) return 'price';
   if (compact.includes('load')) return compact.includes('actual') ? 'actual_load_count' : 'estimated_load_count';
   if (compact.includes('hour')) return 'labor_hours';
   if (compact.includes('worker')) return 'workers';
@@ -282,9 +283,17 @@ export function parsePercent(value: string): number | null {
 export function parseAuditDate(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
+  if (/^(yes|no|true|false|won|lost|complete|completed)$/i.test(trimmed)) return null;
   const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString().slice(0, 10);
+}
+
+export function parseBooleanLike(value: string): boolean | null {
+  const trimmed = value.trim().toLowerCase();
+  if (['yes', 'true', 'y', '1', 'won', 'complete', 'completed'].includes(trimmed)) return true;
+  if (['no', 'false', 'n', '0', 'lost', 'incomplete'].includes(trimmed)) return false;
+  return null;
 }
 
 export function classifyPrivacyField(header: string, canonicalField = canonicalFieldForHeader(header)): PrivacyClassification {
@@ -491,11 +500,13 @@ function auditColumn(originalHeader: string, canonicalField: string, values: str
 function inferType(canonicalField: string, values: string[]): InferredColumnType {
   if (values.length === 0) return 'empty';
   if (/date/.test(canonicalField)) return 'date';
+  if (/stairs|heavy_items|demo_required|won_job|completed/.test(canonicalField)) return 'boolean';
   if (/price|cost|revenue|margin/.test(canonicalField)) return 'currency';
   if (/percent|rate/.test(canonicalField)) return 'percentage';
   if (/count|hours|mileage|time|weight|workers|loads/.test(canonicalField)) return 'number';
   if (/accepted|completed|cancelled/.test(canonicalField)) return 'boolean';
   const sample = values.slice(0, 25);
+  if (sample.every((value) => parseBooleanLike(value) !== null)) return 'boolean';
   if (sample.every((value) => parseAuditDate(value))) return 'date';
   if (sample.every((value) => parseCurrency(value) !== null)) return 'currency';
   if (sample.every((value) => parsePercent(value) !== null)) return 'percentage';
@@ -508,6 +519,7 @@ function isValidValueForType(value: string, type: InferredColumnType) {
   if (type === 'currency') return parseCurrency(value) !== null;
   if (type === 'percentage') return parsePercent(value) !== null;
   if (type === 'number') return Number.isFinite(Number(value.replace(/,/g, '').trim()));
+  if (type === 'boolean') return parseBooleanLike(value) !== null;
   return true;
 }
 
@@ -584,8 +596,8 @@ function buildOutcomeAvailability(records: string[][], canonicalHeaders: string[
     cityOrGeography: /city|geography/,
     originalQuotedPrice: /final_quoted_price|quoted_price/,
     acceptedPrice: /accepted_price|final_quoted_price/,
-    finalCompletedPrice: /final_completed_price|completed_price/,
-    quoteAccepted: /accepted|status/,
+    finalCompletedPrice: /final_completed_price|completed_price|price/,
+    quoteAccepted: /accepted|won_job|status/,
     lostCancelledOutcome: /loss_reason|status/,
     lossReason: /loss_reason/,
     estimatedLoad: /estimated_load/,
@@ -666,7 +678,7 @@ function buildTargetReadiness(outcomes: Record<string, OutcomeAvailability>, tot
   ] as const;
   return targets.map(([target, availability, metric]) => ({
     target,
-    supported: availability.available && availability.eligibleRows >= Math.min(50, Math.max(10, totalRows * 0.5)),
+    supported: isTargetSupported(target, availability, totalRows),
     eligibleRows: availability.eligibleRows,
     missingRate: availability.missingRate,
     labelReliability: availability.available ? (availability.missingRate < 0.1 ? 'medium' : 'low') : 'unknown',
@@ -676,6 +688,13 @@ function buildTargetReadiness(outcomes: Record<string, OutcomeAvailability>, tot
     metric,
     managerReviewRequired: true
   }));
+}
+
+function isTargetSupported(target: string, availability: OutcomeAvailability, totalRows: number) {
+  if (!availability.available) return false;
+  if (/acceptance/i.test(target)) return availability.eligibleRows >= 100 && availability.missingRate < 0.2;
+  if (/gross margin/i.test(target)) return availability.eligibleRows >= 100 && availability.missingRate < 0.2;
+  return availability.eligibleRows >= Math.min(50, Math.max(10, totalRows * 0.5));
 }
 
 function buildReadinessSummary(totalRows: number, outcomes: Record<string, OutcomeAvailability>, quality: DataQualityAudit): ReadinessSummary {
@@ -853,4 +872,3 @@ function percentage(numerator: number, denominator: number) {
 function normalizeCategory(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
-

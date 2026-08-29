@@ -47,6 +47,23 @@ This schema separates customer identity, estimate-time features, post-quote outc
 | `prompt_version` | string | none | future | estimate | system | semantic version | reproducibility |
 | `pricing_rule_version` | string | none | future | quote | system | semantic version | deterministic baseline |
 
+## Verified ML Data Fields
+
+The audited `ML Data` worksheet currently maps to these canonical fields:
+
+`estimate_date`, `service_type`, `final_completed_price`, `owner`, `city`, `payment_expense`, `distance`, `direct_job_cost`, `roi`, `client`, `net_profit`, `completed`, `notes`, `estimated_load_count`, `actual_load_count`, `workers`, `labor_hours`, `stairs`, `carry_distance`, `heavy_items`, `demo_required`, `resale_value`, `won_job`, `historical_data_completeness`, `historical_data_confidence`.
+
+Verified gaps against the desired canonical schema:
+
+- No stable non-PII job, opportunity, estimate, or customer-safe grouping ID.
+- No dedicated completion date separate from estimate/date.
+- No original quoted price or accepted price separate from completed price.
+- No dedicated lost/cancelled outcome or loss reason.
+- No disposal facility, disposal weight, or disposal cost field.
+- No mileage or travel-time field.
+- No gross margin, manager override, or override reason field.
+- No photograph reference, model version, prompt version, or pricing-rule version field.
+
 ## Privacy Separation
 
 Exclude direct identifiers from training: customer names, phone numbers, emails, full street addresses, payment details, and unredacted notes. Pseudonymize job and estimate IDs. Generalize geography to city or operating zone. Photograph references require access restriction and should be converted to governed visual features before modeling.
@@ -73,4 +90,3 @@ Every training or benchmark run must record a manifest, not raw customer data:
   "codeCommit": "git-commit"
 }
 ```
-

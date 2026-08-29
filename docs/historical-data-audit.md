@@ -13,15 +13,15 @@ This document is intentionally aggregate and redacted. It must not contain raw G
 
 ## Access Result
 
-The real Google Sheet audit is blocked in this branch because the required local server-side environment variables are unavailable:
+The real Google Sheet audit succeeded on 2026-08-29 using process-scoped environment variables only:
 
-- `GOOGLE_SPREADSHEET_ID`: missing locally
-- `GOOGLE_SHEET_TAB`: missing locally
-- `GOOGLE_SERVICE_ACCOUNT_JSON`: missing locally
+- `GOOGLE_SPREADSHEET_ID`: matched expected spreadsheet
+- `GOOGLE_SHEET_TAB`: `ML Data`
+- Worksheet GID: `969595299`
+- Access scope: read-only
+- Spreadsheet write operations attempted: none
 
-Two non-interactive attempts to pull Preview environment configuration into the gitignored `.env.local` file did not complete through the local Vercel CLI. They were stopped without printing secret values.
-
-No credential value was printed, copied into code, committed, or requested in chat. No spreadsheet read was completed and no spreadsheet write was attempted.
+The rotated service-account JSON was loaded directly from the authorized local file into a process-scoped variable for the audit command, then cleared. No credential value was printed, copied into code, persisted to `.env.local`, committed, or requested in chat.
 
 ## Production Baseline
 
@@ -34,13 +34,13 @@ No credential value was printed, copied into code, committed, or requested in ch
 
 ## Reproducible Audit Command
 
-Run the local read-only audit after a safe `.env.local` is available:
+Run the local read-only audit only from an authorized server-side environment:
 
 ```bash
 npm run audit:historical-data
 ```
 
-The command loads `.env.local`, authenticates only with the read-only Sheets scope, reads only the configured spreadsheet and tab, and prints aggregate/redacted JSON. It returns a nonzero exit code for missing configuration, malformed credentials, unexpected spreadsheet IDs, worksheet mismatches, or access failures.
+The command can load a gitignored `.env.local` for local development, authenticates only with the read-only Sheets scope, reads only the configured spreadsheet and tab, and prints aggregate/redacted JSON. It returns a nonzero exit code for missing configuration, malformed credentials, unexpected spreadsheet IDs, worksheet mismatches, or access failures.
 
 The command reports:
 
@@ -58,34 +58,52 @@ It does not write raw rows to disk and does not print customer identity fields o
 
 ## Dataset Summary
 
-Real dataset summary is blocked pending secure read-only credentials.
+- Total sheet rows returned: 73
+- Non-empty records after header: 70
+- Column count: 25
+- Earliest valid date: 2025-10-25
+- Latest valid date: 2026-06-01
+- The prior belief that coverage ends around June 1, 2026 is confirmed.
+- Newer completed jobs after 2026-06-01 are not present in the audited worksheet.
+- Duplicate full rows: 0
+- Likely duplicate jobs by available aggregate key: 0
+- Rows classified as non-completed by the available status field: 0
+- Missing stable job/opportunity/estimate identifiers: 70 records
+- Formula cells detected in returned values: none
+- Merged or blank header complications detected: none
 
-The audit command is ready to measure:
+Normalized fields found:
 
-- total rows and non-empty rows
-- actual configured tab name
-- earliest and latest parsed dates
-- whether coverage ends around June 1, 2026
-- whether newer completed jobs appear missing
-- column count and schema mapping
-- duplicate row and likely duplicate job rates
-- missing identifiers, dates, prices, and operational labels
-- invalid date, price, currency, percentage, and numeric values
-- inconsistent city, service-type, and status values
-- formula cells and merged/blank header complications
-- rows that are not completed jobs
+`estimate_date`, `service_type`, `final_completed_price`, `owner`, `city`, `payment_expense`, `distance`, `direct_job_cost`, `roi`, `client`, `net_profit`, `completed`, `notes`, `estimated_load_count`, `actual_load_count`, `workers`, `labor_hours`, `stairs`, `carry_distance`, `heavy_items`, `demo_required`, `resale_value`, `won_job`, `historical_data_completeness`, `historical_data_confidence`.
+
+Important missingness and quality findings:
+
+- Estimate date, service type, completed-price field, city, direct job cost, and completed status: 0% missing.
+- Estimated load count, actual load count, workers, labor hours, stairs, carry distance, heavy-items flag, demo-required flag, resale-value flag, won-job flag, historical completeness, and historical confidence: 14.29% missing each.
+- Notes: 77.14% missing and treated as sensitive text requiring redaction/review.
+- Completion date, accepted/lost/cancelled outcome reason, mileage, travel time, disposal facility, disposal weight, disposal cost, gross margin, manager override, override reason, photo references, model version, prompt version, and pricing-rule version: unavailable as dedicated fields.
+- Zero or negative values were detected in price-like/cost-like fields and require business review before target use.
+- City naming is inconsistent enough to require normalization/generalization.
+- Outlier counts are material for price, direct job cost, load count, and labor hours; this supports robust methods and large-project separation.
+
+Outcome availability:
+
+- Supported for reporting/backtesting: estimate date, service type, city/geography, final completed price, direct job cost, completed status, won-job indicator, estimated/actual loads, workers, labor hours, stairs, carry distance, heavy-items flag, demo-required flag, resale-value flag.
+- `won_job` is present on 60 records, but acceptance modeling remains not ready because lost/declined/cancelled outcomes and loss reasons are not available as dedicated validated fields.
+- Not available as dedicated fields: completion date, stable job ID, estimate ID, original quoted price, accepted price, loss/cancel reason, disposal facility, disposal weight, disposal cost, mileage, travel time, gross margin, manager override, override reason, photographs, model version, prompt version, and pricing-rule version.
 
 ## Current ML Readiness
 
-Because the real sheet could not be read, the honest readiness rating is `blocked`.
+Overall readiness: limited, not Production-ML ready.
 
-Allowed conclusions at this point:
-
-- Reporting: likely feasible only after read-only access confirms date and price fields.
-- Comparable-job retrieval: cannot be certified until service, geography, load, access, and final price coverage are measured.
-- Statistical baselines: cannot be certified until row count and label quality are measured.
-- Gradient-boosted models: not supportable from evidence yet.
-- Production ML: not supportable in this phase.
+- Descriptive reporting: supported for current fields.
+- Comparable-job retrieval: supportable in an internal/redacted manager-assist mode using service type, date, generalized city, load count, labor hours, access flags, direct job cost, and completed price.
+- Segmented median baselines: supportable for coarse segments only; 70 records and 2 service types are too small for fine-grained slicing.
+- Robust regression or regularized quantile regression: supportable only in shadow-mode experiments, preferably with log-transformed price or operational targets and strong review of large-project influence.
+- Gradient boosting, CatBoost, LightGBM, XGBoost, neural networks, or photograph-to-final-price models: not supported for Production use at this data size.
+- Acceptance modeling: not supportable until lost/declined/cancelled opportunities and loss reasons are consistently recorded and enough negative examples exist.
+- Margin modeling: blocked until gross margin or complete direct-cost components are reliably recorded.
+- Large-project prediction: not supportable as an ordinary supervised model; large jobs need a separate component-based manager-review regime.
 
 No machine-learning model was trained, selected, deployed, or promoted.
 
@@ -124,4 +142,3 @@ These are proposed for Tristan approval only; this branch does not modify the Sh
 | P1 | `loss_reason` | Acceptance modeling | category | if lost/cancelled | manager/admin | closeout | `price`, `timing`, `scope`, `unknown` |
 | P2 | `model_version` | Reproducibility | text | future | system | estimate | `rules-only-2026-08-29` |
 | P2 | `pricing_rule_version` | Deterministic baseline version | text | future | system | estimate | `whs-rules-v1` |
-
