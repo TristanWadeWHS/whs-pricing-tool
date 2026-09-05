@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.mts",
     "audit:historical-data": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/audit-historical-data.ts",
-    "migrate:historical-schema-v2": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/migrate-historical-schema-v2.ts"
+    "migrate:historical-schema-v2": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/migrate-historical-schema-v2.ts",
+    "benchmark:shadow-pricing": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/run-shadow-pricing-benchmark.ts"
   },
   "dependencies": {
     "googleapis": "174.0.1",
