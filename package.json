@@ -9,7 +9,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.mts",
-    "audit:historical-data": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/audit-historical-data.ts"
+    "audit:historical-data": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/audit-historical-data.ts",
+    "migrate:historical-schema-v2": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/migrate-historical-schema-v2.ts"
   },
   "dependencies": {
     "googleapis": "174.0.1",

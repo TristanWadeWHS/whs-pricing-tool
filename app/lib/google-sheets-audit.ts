@@ -213,6 +213,20 @@ export function canonicalFieldForHeader(header: string) {
     estimate_date: 'estimate_date',
     completion_date: 'completion_date',
     completed_date: 'completion_date',
+    original_quoted_price: 'original_quoted_price',
+    customer_accepted_price: 'customer_accepted_price',
+    opportunity_outcome: 'opportunity_outcome',
+    cancellation_reason: 'cancellation_reason',
+    actual_load_percent: 'actual_load_percent',
+    travel_time_minutes: 'travel_time_minutes',
+    gross_margin_dollars: 'gross_margin_dollars',
+    gross_margin_percent: 'gross_margin_percent',
+    manager_override: 'manager_override',
+    manager_override_reason: 'manager_override_reason',
+    photo_reference_id: 'photo_reference_id',
+    data_schema_version: 'data_schema_version',
+    data_quality_status: 'data_quality_status',
+    estimate_source: 'estimate_source',
     service_type: 'service_type',
     city: 'city',
     status: 'status',
@@ -598,7 +612,7 @@ function buildOutcomeAvailability(records: string[][], canonicalHeaders: string[
     acceptedPrice: /accepted_price|final_quoted_price/,
     finalCompletedPrice: /final_completed_price|completed_price|price/,
     quoteAccepted: /accepted|won_job|status/,
-    lostCancelledOutcome: /loss_reason|status/,
+    lostCancelledOutcome: /loss_reason|opportunity_outcome|quote_status|^status$/,
     lossReason: /loss_reason/,
     estimatedLoad: /estimated_load/,
     actualLoad: /actual_load_count/,
@@ -843,9 +857,16 @@ function countNonCompletedRows(records: string[][], canonicalHeaders: string[]) 
 }
 
 function isCompletedRow(row: string[], canonicalHeaders: string[]) {
-  const statusIndex = canonicalHeaders.findIndex((header) => /status/.test(header));
+  const statusIndex = canonicalHeaders.findIndex((header) => header === 'completed' || header === 'opportunity_outcome' || header === 'quote_status' || header === 'status');
   if (statusIndex === -1) return true;
+  const statusHeader = canonicalHeaders[statusIndex];
   const status = normalizeCategory(String(row[statusIndex] || ''));
+  if (!status && canonicalHeaders[statusIndex] === 'opportunity_outcome') return true;
+  if (statusHeader === 'completed') {
+    const parsed = parseBooleanLike(status);
+    if (parsed !== null) return parsed;
+    return !/cancel|lost|declin|void|incomplete/.test(status);
+  }
   return /complete|completed|done|paid/.test(status) && !/cancel|lost|declin|void/.test(status);
 }
 
