@@ -1,5 +1,65 @@
 # Shadow Pricing Benchmark Results
 
+## Corrected Read-Only Run
+
+Executed once at 2026-09-05T08:42:22.362Z after 13 targeted tests and typecheck
+passed. Google authentication and the read succeeded; the authorized worksheet
+GID was verified. Evaluation correctly returned `blocked` due to eligibility.
+No provider error occurred and no retry was made.
+
+Source code: c272da080e0009b90a847f757839bb4001ffe3af plus the methodology-v2
+working-tree changes committed with this report. Feature version shadow-pricing-v2;
+target version canonical-final-completed-price-v2. No source rows were retained.
+
+| Aggregate | Corrected result |
+| --- | ---: |
+| Returned non-empty records | 70 |
+| Eligible canonical date/target records | 0 |
+| Excluded records | 70 |
+| Missing/invalid canonical estimate_date | 70 |
+| Missing/invalid canonical final_completed_price | 70 |
+| Missing/invalid tier inputs | 70 |
+| Folds / holdout / matching evaluated records | 0 / 0 / 0 |
+
+Blocker counts overlap; they do not represent 210 separate rows. These checks
+do not prove that legacy values are absent or wrong, only that the canonical
+provenance contract was not met. We did not reinterpret legacy values to force
+eligibility. Eligible date coverage and fold boundaries are unavailable.
+
+| Eligible tier | Eligible | Holdout | Matched | All candidate error metrics |
+| --- | ---: | ---: | ---: | --- |
+| Small/routine | 0 | 0 | 0 | null |
+| Mid-tier | 0 | 0 | 0 | null |
+| Large/project | 0 | 0 | 0 | null |
+| Special review | 0 | 0 | 0 | null |
+| Unknown inputs | 0 | 0 | 0 | null |
+
+Deterministic tier median, comparable retrieval and Huber each evaluated zero
+matching records. MAE, RMSE, below-historical-price frequency and summed
+historical-price shortfall are all null, not zero. The diagnostic global median
+also has zero observations and null metrics. No model-level abstentions were
+reached because all source rows were excluded before fold construction.
+Quantile regression is unavailable; corrected coverage is null. No baseline
+or statistical challenger can be ranked. Decision: **NO_MODEL_READY**.
+
+Next action requires human validation of historical estimate-time and
+completed-revenue provenance, followed by separately authorized canonical data
+entry or an explicitly documented, reviewed legacy mapping. Sufficient
+validated outcomes and per-tier holdouts are required before another benchmark.
+This run made no Sheet writes, data repairs, model connection, or Production
+changes. Output was aggregate/redacted; no credentials, customer data or
+row-level predictions were printed or persisted. No dependencies changed.
+
+## Archived V1 Results: Invalid Evidence
+
+**SUPERSEDED: all original metrics and rankings in this section are invalid methodology evidence.**
+The original run had ambiguous legacy mappings, date-boundary overlap risk,
+missing-value coercion, pooled tiers, and a defective quantile fitter. Its
+7.50% coverage cannot establish genuine calibration quality. Original values
+are retained only as an archived experiment, not evidence for model selection.
+"Underpricing" in the archived table means below historical charged price,
+not proven economic underpricing. Corrected results appear above.
+
 Generated from one authorized read-only benchmark run on 2026-09-05.
 
 ## Dataset

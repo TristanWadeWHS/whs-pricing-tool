@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { google } from 'googleapis';
 
 export const SHADOW_BENCHMARK_SHEET_GID = 969595299;
@@ -7,8 +6,10 @@ export const SHADOW_BENCHMARK_READONLY_SCOPE = 'https://www.googleapis.com/auth/
 const EXPECTED_SPREADSHEET_ID = '1VKZgdAwWURAkACKSUrEGSoNib1xQaQ7zzpBGfwneOeI';
 const EXPECTED_TAB_NAME = 'ML Data';
 
-const FEATURE_DEFINITION_VERSION = 'shadow-pricing-v1';
-const TARGET_DEFINITION_VERSION = 'final-completed-price-v1';
+const FEATURE_DEFINITION_VERSION = 'shadow-pricing-v2';
+const TARGET_DEFINITION_VERSION = 'canonical-final-completed-price-v2';
+export const TIERS = ['small_routine', 'mid_tier', 'large_project', 'special_risk_manual_review', 'unknown_inputs'] as const;
+export const MIN_TIER_TRAIN = 8;
 
 export type ShadowPricingRawRecord = Record<string, string>;
 
@@ -20,7 +21,7 @@ export type ShadowPricingRecord = {
   features: ShadowPricingFeatures;
 };
 
-export type ShadowPricingTier = 'small_routine' | 'mid_tier' | 'large_project' | 'special_risk_manual_review';
+export type ShadowPricingTier = typeof TIERS[number];
 
 export type ShadowPricingFeatures = {
   estimateMonth: number;
@@ -46,13 +47,13 @@ export type ShadowBenchmarkModelName =
 export type ShadowBenchmarkMetric = {
   model: ShadowBenchmarkModelName;
   evaluatedRows: number;
-  mae: number;
-  medianAbsoluteError: number;
-  rmse: number;
-  meanAbsolutePercentageError: number;
-  underpricingFrequency: number;
-  totalUnderpricingDollars: number;
-  largeUnderquoteFrequency: number;
+  mae: number | null;
+  medianAbsoluteError: number | null;
+  rmse: number | null;
+  meanAbsolutePercentageError: number | null;
+  belowHistoricalPriceFrequency: number | null;
+  totalShortfallVsHistoricalPrice: number | null;
+  largeShortfallVsHistoricalPriceFrequency: number | null;
   quantileCoverage: number | null;
 };
 
@@ -63,6 +64,8 @@ export type ShadowBenchmarkResult = {
   dataset?: {
     returnedRows: number;
     eligibleRows: number;
+    excludedRows: number;
+    fieldBlockers: Record<string, number>;
     dateCoverage: { earliest: string | null; latest: string | null };
     tierDistribution: Record<ShadowPricingTier, number>;
     featureAllowlist: string[];
@@ -74,7 +77,15 @@ export type ShadowBenchmarkResult = {
     foldCount: number;
     trainWindow: string;
     metrics: ShadowBenchmarkMetric[];
-    bestBaseline: ShadowBenchmarkModelName;
+    holdoutRows: number;
+    matchedRows: number;
+    excludedFromMatchedRows: number;
+    foldBoundaries: Array<{ trainEnd: string | null; testStart: string | null; testEnd: string | null; trainRows: number; testRows: number }>;
+    perTier: Array<{ tier: ShadowPricingTier; eligibleRows: number; holdoutRows: number; matchedRows: number; metrics: ShadowBenchmarkMetric[] }>;
+    availability: Array<{ model: ShadowBenchmarkModelName; predictedRows: number; abstentions: Record<string, number> }>;
+    diagnosticGlobalMedian: ShadowBenchmarkMetric;
+    quantile: { status: 'unavailable'; nominalCoverage: number; reason: string };
+    bestBaseline: ShadowBenchmarkModelName | null;
     bestStatisticalChallenger: ShadowBenchmarkModelName | null;
     decision: 'NO_MODEL_READY' | 'SHADOW_MODEL_READY' | 'CANDIDATE_FOR_INTERNAL_REVIEW';
     decisionReason: string;
@@ -99,7 +110,6 @@ export type ShadowBenchmarkManifest = {
   dateRange: { earliest: string | null; latest: string | null };
   featureDefinitionVersion: string;
   targetDefinitionVersion: string;
-  datasetChecksum: string;
   codeCommit: string;
 };
 
@@ -188,27 +198,27 @@ export function parseCurrency(value: string | undefined): number | null {
 
 export function parseDate(value: string | undefined): Date | null {
   const trimmed = (value ?? '').trim();
-  if (!trimmed) return null;
-  const parsed = new Date(trimmed);
-  if (!Number.isNaN(parsed.getTime())) return parsed;
-  const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (!match) return null;
-  const year = Number(match[3]) < 100 ? 2000 + Number(match[3]) : Number(match[3]);
-  const date = new Date(Date.UTC(year, Number(match[1]) - 1, Number(match[2])));
-  return Number.isNaN(date.getTime()) ? null : date;
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const us = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!iso && !us) return null;
+  const [year, month, day] = iso ? [Number(iso[1]), Number(iso[2]), Number(iso[3])] : [Number(us![3]), Number(us![1]), Number(us![2])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date : null;
 }
 
 export function parseBooleanLike(value: string | undefined): boolean | null {
   const normalized = (value ?? '').trim().toLowerCase();
   if (!normalized) return null;
-  if (['true', 'yes', 'y', '1', 'completed', 'won'].includes(normalized)) return true;
-  if (['false', 'no', 'n', '0', 'none', 'lost'].includes(normalized)) return false;
+  if (['true', 'yes', 'y', '1'].includes(normalized)) return true;
+  if (['false', 'no', 'n', '0', 'none'].includes(normalized)) return false;
   return null;
 }
 
 function parseNumber(value: string | undefined): number | null {
-  const numeric = Number((value ?? '').replace(/,/g, '').trim());
-  return Number.isFinite(numeric) ? numeric : null;
+  const text = (value ?? '').replace(/,/g, '').trim();
+  if (!text) return null;
+  const numeric = Number(text);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
 }
 
 function normalizeCategory(value: string | undefined, fallback = 'unknown') {
@@ -224,8 +234,13 @@ function valueFor(row: ShadowPricingRawRecord, names: string[]) {
 }
 
 export function classifyShadowPricingTier(features: ShadowPricingFeatures): ShadowPricingTier {
-  const loadCount = features.estimatedLoadCount ?? 0;
-  const workers = features.plannedWorkers ?? 0;
+  const loadCount = features.estimatedLoadCount;
+  const workers = features.plannedWorkers;
+  if (loadCount === null || workers === null || features.stairs === null ||
+      features.heavyItems === null || features.demoRequired === null ||
+      !['short', 'short_carry', 'medium', 'medium_carry', 'long', 'long_carry'].includes(features.carryDistance)) {
+    return 'unknown_inputs';
+  }
   const carry = features.carryDistance;
   const heavy = features.heavyItems === true;
   const demo = features.demoRequired === true;
@@ -239,37 +254,45 @@ export function classifyShadowPricingTier(features: ShadowPricingFeatures): Shad
 
 export function buildShadowPricingRecords(rawRows: ShadowPricingRawRecord[]) {
   const records: ShadowPricingRecord[] = [];
-  let returnedRows = rawRows.length;
+  const returnedRows = rawRows.length;
+  const fieldBlockers: Record<string, number> = {};
+  const block = (name: string) => { fieldBlockers[name] = (fieldBlockers[name] ?? 0) + 1; };
 
   for (const [index, row] of rawRows.entries()) {
-    const estimateDate = parseDate(valueFor(row, ['Date', 'estimate_date']));
-    const price = parseCurrency(valueFor(row, ['Amount', 'final_completed_price']));
-    if (!estimateDate || price === null || price <= 0) continue;
+    // Legacy Date/Amount/Workers are not evidence of estimate-time/completed-price provenance.
+    const estimateDate = parseDate(row.estimate_date);
+    const price = parseCurrency(row.final_completed_price);
+    if (!estimateDate) block('missing_or_invalid_canonical_estimate_date');
+    if (price === null || price <= 0) block('missing_or_invalid_canonical_final_completed_price');
 
     const features: ShadowPricingFeatures = {
-      estimateMonth: estimateDate.getUTCMonth() + 1,
-      estimateYear: estimateDate.getUTCFullYear(),
-      serviceType: normalizeCategory(valueFor(row, ['Job Type', 'Service Type', 'service_type'])),
-      cityRegion: normalizeCategory(valueFor(row, ['City', 'Service Region', 'city'])),
-      distanceTier: normalizeCategory(valueFor(row, ['Distance', 'Distance Tier', 'distance_tier'])),
-      estimatedLoadCount: parseNumber(valueFor(row, ['Estimated_Loads', 'Estimated Loads', 'estimated_load_count'])),
-      plannedWorkers: parseNumber(valueFor(row, ['Workers', 'Workers Planned', 'planned_workers'])),
-      stairs: parseBooleanLike(valueFor(row, ['Stairs', 'stairs'])),
-      carryDistance: normalizeCategory(valueFor(row, ['Carry_Distance', 'Carry Distance', 'carry_distance'])),
-      heavyItems: parseBooleanLike(valueFor(row, ['Heavy_Items', 'Heavy Items', 'heavy_items'])),
-      demoRequired: parseBooleanLike(valueFor(row, ['Demo_Required', 'Demo Required', 'demo_required']))
+      estimateMonth: estimateDate ? estimateDate.getUTCMonth() + 1 : 0,
+      estimateYear: estimateDate ? estimateDate.getUTCFullYear() : 0,
+      serviceType: normalizeCategory(row.service_type),
+      cityRegion: normalizeCategory(row.city),
+      distanceTier: normalizeCategory(row.distance_tier),
+      estimatedLoadCount: parseNumber(row.estimated_load_count),
+      // Schema V2 explicitly defines lowercase workers as planned count. Blank wins.
+      plannedWorkers: parseNumber(valueFor(row, ['planned_workers', 'workers'])),
+      stairs: parseBooleanLike(row.stairs),
+      carryDistance: normalizeCategory(row.carry_distance),
+      heavyItems: parseBooleanLike(row.heavy_items),
+      demoRequired: parseBooleanLike(row.demo_required)
     };
+    const tier = classifyShadowPricingTier(features);
+    if (tier === 'unknown_inputs') block('missing_or_invalid_tier_inputs');
+    if (!estimateDate || price === null || price <= 0) continue;
 
     records.push({
       rowNumber: index + 2,
       estimateDate,
       targetFinalCompletedPrice: price,
-      tier: classifyShadowPricingTier(features),
+      tier,
       features
     });
   }
 
-  return { returnedRows, records };
+  return { returnedRows, records, fieldBlockers };
 }
 
 export function createTimeAwareFolds(records: ShadowPricingRecord[]): Fold[] {
@@ -280,10 +303,15 @@ export function createTimeAwareFolds(records: ShadowPricingRecord[]): Fold[] {
   const foldSize = Math.max(3, Math.floor((sorted.length - minTrain) / 4));
   const folds: Fold[] = [];
 
-  for (let start = minTrain; start < sorted.length; start += foldSize) {
-    const test = sorted.slice(start, Math.min(start + foldSize, sorted.length));
-    if (!test.length) continue;
+  const afterDateGroup = (index: number) => {
+    while (index < sorted.length && sorted[index].estimateDate.getTime() === sorted[index - 1].estimateDate.getTime()) index += 1;
+    return index;
+  };
+  for (let start = afterDateGroup(minTrain); start < sorted.length;) {
+    const end = afterDateGroup(Math.min(start + foldSize, sorted.length));
+    const test = sorted.slice(start, end);
     folds.push({ train: sorted.slice(0, start), test });
+    start = end;
   }
 
   return folds;
@@ -309,16 +337,6 @@ function globalMedianPredictor(train: ShadowPricingRecord[]) {
   return () => fallback;
 }
 
-function tierMedianPredictor(train: ShadowPricingRecord[]) {
-  const fallback = median(train.map((record) => record.targetFinalCompletedPrice));
-  const byTier = new Map<ShadowPricingTier, number>();
-  for (const tier of ['small_routine', 'mid_tier', 'large_project', 'special_risk_manual_review'] as const) {
-    const tierValues = train.filter((record) => record.tier === tier).map((record) => record.targetFinalCompletedPrice);
-    if (tierValues.length) byTier.set(tier, median(tierValues));
-  }
-  return (record: ShadowPricingRecord) => byTier.get(record.tier) ?? fallback;
-}
-
 function comparablePredictor(train: ShadowPricingRecord[]) {
   const numericStats = buildNumericStats(train);
   const fallback = median(train.map((record) => record.targetFinalCompletedPrice));
@@ -338,12 +356,12 @@ function comparablePredictor(train: ShadowPricingRecord[]) {
   };
 }
 
-function buildNumericStats(train: ShadowPricingRecord[]) {
+export function buildNumericStats(train: ShadowPricingRecord[]) {
   const stats = new Map<keyof ShadowPricingFeatures, { median: number; scale: number }>();
   for (const key of NUMERIC_FEATURES) {
     const values = train
-      .map((record) => Number(record.features[key]))
-      .filter((value) => Number.isFinite(value));
+      .map((record) => record.features[key])
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
     const med = median(values);
     const deviations = values.map((value) => Math.abs(value - med));
     stats.set(key, { median: med, scale: Math.max(1, median(deviations) || 1) });
@@ -370,8 +388,8 @@ function mixedFeatureDistance(
 
   for (const key of NUMERIC_FEATURES) {
     const stats = numericStats.get(key) ?? { median: 0, scale: 1 };
-    const av = Number.isFinite(Number(a.features[key])) ? Number(a.features[key]) : stats.median;
-    const bv = Number.isFinite(Number(b.features[key])) ? Number(b.features[key]) : stats.median;
+    const av = a.features[key] === null ? stats.median : Number(a.features[key]);
+    const bv = b.features[key] === null ? stats.median : Number(b.features[key]);
     distance += Math.min(3, Math.abs(av - bv) / stats.scale);
   }
 
@@ -392,7 +410,7 @@ function vectorize(train: ShadowPricingRecord[]) {
     const vector = [1];
     for (const key of NUMERIC_FEATURES) {
       const stat = stats.get(key) ?? { median: 0, scale: 1 };
-      const raw = Number.isFinite(Number(record.features[key])) ? Number(record.features[key]) : stat.median;
+      const raw = record.features[key] === null ? stat.median : Number(record.features[key]);
       vector.push((raw - stat.median) / stat.scale);
     }
     for (const key of BOOLEAN_FEATURES) {
@@ -411,113 +429,126 @@ function vectorize(train: ShadowPricingRecord[]) {
   return { encode };
 }
 
-function trainLinearModel(
-  train: ShadowPricingRecord[],
-  options: { loss: 'huber' | 'quantile'; tau?: number; l2: number; iterations?: number }
-) {
+function trainHuberModel(train: ShadowPricingRecord[]) {
   const { encode } = vectorize(train);
   const x = train.map(encode);
-  const y = train.map((record) => record.targetFinalCompletedPrice);
+  const prices = train.map((record) => record.targetFinalCompletedPrice);
+  const center = median(prices);
+  const scale = Math.max(1, median(prices.map((price) => Math.abs(price - center))));
+  const y = prices.map((price) => (price - center) / scale);
   const dims = x[0]?.length ?? 1;
+  if (train.length < Math.max(20, 2 * dims)) return null;
   const weights = new Array(dims).fill(0);
-  weights[0] = median(y);
-  const iterations = options.iterations ?? 700;
-  const rate = 0.015;
+  const l2 = 0.001;
+  // A training-only Lipschitz bound gives a conservative step for convex Huber loss.
+  const rate = 1 / (average(x.map((vector) => dot(vector, vector))) + l2);
+  let converged = false;
 
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
+  for (let iteration = 0; iteration < 10000; iteration += 1) {
     const gradients = new Array(dims).fill(0);
     for (let i = 0; i < x.length; i += 1) {
       const prediction = dot(weights, x[i]);
       const residual = prediction - y[i];
-      let gradientScale: number;
-      if (options.loss === 'huber') {
-        const delta = 250;
-        gradientScale = Math.abs(residual) <= delta ? residual : delta * Math.sign(residual);
-      } else {
-        const tau = options.tau ?? 0.5;
-        gradientScale = residual >= 0 ? 1 - tau : -tau;
-      }
+      const gradientScale = Math.max(-1, Math.min(1, residual));
       for (let j = 0; j < dims; j += 1) {
         gradients[j] += (gradientScale * x[i][j]) / x.length;
       }
     }
-    for (let j = 1; j < dims; j += 1) gradients[j] += options.l2 * weights[j];
+    for (let j = 1; j < dims; j += 1) gradients[j] += l2 * weights[j];
+    if (gradients.every((gradient) => Number.isFinite(gradient) && Math.abs(gradient) <= 1e-5)) {
+      converged = true;
+      break;
+    }
     for (let j = 0; j < dims; j += 1) weights[j] -= rate * gradients[j];
   }
 
-  return (record: ShadowPricingRecord) => clampPrice(dot(weights, encode(record)));
+  if (!converged) return null;
+  return (record: ShadowPricingRecord) => Math.max(0, center + scale * dot(weights, encode(record)));
 }
 
 function dot(a: number[], b: number[]) {
   return a.reduce((sum, value, index) => sum + value * (b[index] ?? 0), 0);
 }
 
-function predictForModel(model: ShadowBenchmarkModelName, train: ShadowPricingRecord[]) {
-  if (model === 'global_historical_median') return globalMedianPredictor(train);
-  if (model === 'deterministic_job_tier_median') return tierMedianPredictor(train);
-  if (model === 'comparable_job_retrieval') return comparablePredictor(train);
-  if (model === 'huber_regression') return trainLinearModel(train, { loss: 'huber', l2: 0.001 });
+type Forecast = { predicted: number | null; reason: string | null };
 
-  const medianPredictor = trainLinearModel(train, { loss: 'quantile', tau: 0.5, l2: 0.001 });
-  const lowerPredictor = trainLinearModel(train, { loss: 'quantile', tau: 0.2, l2: 0.001 });
-  const upperPredictor = trainLinearModel(train, { loss: 'quantile', tau: 0.8, l2: 0.001 });
-  return (record: ShadowPricingRecord) => {
-    const lower = lowerPredictor(record);
-    const upper = upperPredictor(record);
-    return {
-      predicted: medianPredictor(record),
-      lower: Math.min(lower, upper),
-      upper: Math.max(lower, upper)
-    };
+export function fitTierPredictor(model: ShadowBenchmarkModelName, train: ShadowPricingRecord[], tier: ShadowPricingTier) {
+  const abstain = (reason: string) => (_record: ShadowPricingRecord): Forecast => ({ predicted: null, reason });
+  if (model === 'regularized_quantile_regression') return abstain('quantile_solver_unavailable');
+  if (tier === 'unknown_inputs') return abstain('unknown_tier_inputs');
+  if (tier === 'large_project' || tier === 'special_risk_manual_review') return abstain('component_pricing_manager_review');
+  const segment = train.filter((record) => record.tier === tier);
+  if (segment.length < MIN_TIER_TRAIN) return abstain('insufficient_same_tier_training');
+  const predictor = model === 'huber_regression' ? trainHuberModel(segment)
+    : model === 'comparable_job_retrieval' ? comparablePredictor(segment) : globalMedianPredictor(segment);
+  if (!predictor) return abstain('huber_insufficient_training_or_nonconvergence');
+  const trainEnd = Math.max(...segment.map((record) => record.estimateDate.getTime()));
+  return (record: ShadowPricingRecord): Forecast => {
+    if (record.tier !== tier || record.estimateDate.getTime() <= trainEnd) return { predicted: null, reason: 'invalid_holdout' };
+    const predicted = predictor(record);
+    return Number.isFinite(predicted) ? { predicted, reason: null } : { predicted: null, reason: 'nonfinite_prediction' };
+  };
+}
+
+export function intervalCoverage(intervals: Array<{ actual: number; lower: number; upper: number }>) {
+  // Reject crossing rather than silently sorting mislabeled quantiles.
+  const valid = intervals.filter(({ actual, lower, upper }) => [actual, lower, upper].every(Number.isFinite) && lower <= upper);
+  return {
+    nominalCoverage: 0.6,
+    validIntervals: valid.length,
+    invalidIntervals: intervals.length - valid.length,
+    coverage: valid.length ? valid.filter(({ actual, lower, upper }) => lower <= actual && actual <= upper).length / valid.length : null
   };
 }
 
 export function runShadowPricingBenchmark(rawRows: ShadowPricingRawRecord[], codeCommit = 'local-worktree'): ShadowBenchmarkResult {
-  const { returnedRows, records } = buildShadowPricingRecords(rawRows);
+  const { returnedRows, records, fieldBlockers } = buildShadowPricingRecords(rawRows);
   const folds = createTimeAwareFolds(records);
-
-  if (records.length < 12 || folds.length < 2) {
-    return {
-      status: 'blocked',
-      blockedReason: 'Insufficient valid completed-price rows for a time-aware shadow benchmark.',
-      privacy: privacyGuarantee()
-    };
-  }
-
   const models: ShadowBenchmarkModelName[] = [
-    'global_historical_median',
     'deterministic_job_tier_median',
     'comparable_job_retrieval',
-    'huber_regression',
-    'regularized_quantile_regression'
+    'huber_regression'
   ];
-
-  const metrics = models.map((model) => evaluateModel(model, folds));
-  const baselineModels = metrics.filter((metric) =>
-    ['global_historical_median', 'deterministic_job_tier_median', 'comparable_job_retrieval'].includes(metric.model)
-  );
-  const statisticalModels = metrics.filter((metric) =>
-    ['huber_regression', 'regularized_quantile_regression'].includes(metric.model)
-  );
-  const bestBaseline = [...baselineModels].sort((a, b) => a.mae - b.mae)[0];
-  const bestStatistical = [...statisticalModels].sort((a, b) => a.mae - b.mae)[0] ?? null;
-  const improvement = bestStatistical ? (bestBaseline.mae - bestStatistical.mae) / bestBaseline.mae : 0;
-  const decision =
-    records.length < 150 || !bestStatistical || improvement < 0.05
-      ? 'NO_MODEL_READY'
-      : bestStatistical.underpricingFrequency <= bestBaseline.underpricingFrequency
-        ? 'CANDIDATE_FOR_INTERNAL_REVIEW'
-        : 'SHADOW_MODEL_READY';
-
+  const matched = models.map(() => [] as Prediction[]);
+  const availability = models.map((model) => ({ model, predictedRows: 0, abstentions: {} as Record<string, number> }));
+  const holdout: ShadowPricingRecord[] = [];
+  const diagnostic: Prediction[] = [];
+  for (const fold of folds) {
+    const fitted = models.map((model) => new Map(TIERS.map((tier) => [tier, fitTierPredictor(model, fold.train, tier)])));
+    const globalMedian = globalMedianPredictor(fold.train);
+    for (const record of fold.test) {
+      holdout.push(record);
+      const actual = record.targetFinalCompletedPrice;
+      diagnostic.push({ actual, predicted: globalMedian(), tier: record.tier });
+      const forecasts = fitted.map((byTier) => byTier.get(record.tier)!(record));
+      forecasts.forEach((forecast, index) => {
+        if (forecast.predicted !== null) availability[index].predictedRows += 1;
+        else {
+          const reason = forecast.reason!;
+          availability[index].abstentions[reason] = (availability[index].abstentions[reason] ?? 0) + 1;
+        }
+      });
+      // Compare all available methods on the exact same held-out records.
+      if (forecasts.every((forecast) => forecast.predicted !== null)) {
+        forecasts.forEach((forecast, index) => matched[index].push({ actual, predicted: forecast.predicted!, tier: record.tier }));
+      }
+    }
+  }
+  const metrics = models.map((model, index) => aggregatePredictions(model, matched[index]));
+  const matchedRows = matched[0].length;
+  const validEvaluation = folds.length >= 2 && matchedRows > 0;
   const dates = records.map((record) => record.estimateDate).sort((a, b) => a.getTime() - b.getTime());
   const tierDistribution = tierCounts(records);
 
   return {
-    status: 'ok',
+    status: validEvaluation ? 'ok' : 'blocked',
+    blockedReason: validEvaluation ? undefined : 'Insufficient canonical provenance, date groups, or matching same-tier predictions. No ranking is valid.',
     manifest: createManifest(returnedRows, records, codeCommit),
     dataset: {
       returnedRows,
       eligibleRows: records.length,
+      excludedRows: returnedRows - records.length,
+      fieldBlockers,
       dateCoverage: {
         earliest: formatDate(dates[0]),
         latest: formatDate(dates[dates.length - 1])
@@ -532,68 +563,46 @@ export function runShadowPricingBenchmark(rawRows: ShadowPricingRawRecord[], cod
       foldCount: folds.length,
       trainWindow: 'Every fold trains only on rows earlier than its contiguous holdout block.',
       metrics,
-      bestBaseline: bestBaseline.model,
-      bestStatisticalChallenger: bestStatistical?.model ?? null,
-      decision,
-      decisionReason:
-        decision === 'NO_MODEL_READY'
-          ? 'The completed-job sample remains too small for Production ML, and statistical challengers must beat deterministic baselines in shadow evaluation before internal review.'
-          : 'Shadow results merit internal review only; no Production promotion is implied.',
+      holdoutRows: holdout.length,
+      matchedRows,
+      excludedFromMatchedRows: holdout.length - matchedRows,
+      foldBoundaries: folds.map((fold) => ({ trainEnd: formatDate(fold.train.at(-1)?.estimateDate), testStart: formatDate(fold.test[0]?.estimateDate), testEnd: formatDate(fold.test.at(-1)?.estimateDate), trainRows: fold.train.length, testRows: fold.test.length })),
+      perTier: TIERS.map((tier) => ({ tier, eligibleRows: tierDistribution[tier], holdoutRows: holdout.filter((record) => record.tier === tier).length,
+        matchedRows: matched[0].filter((prediction) => prediction.tier === tier).length,
+        metrics: models.map((model, index) => aggregatePredictions(model, matched[index].filter((prediction) => prediction.tier === tier))) })),
+      availability,
+      diagnosticGlobalMedian: aggregatePredictions('global_historical_median', diagnostic),
+      quantile: { status: 'unavailable', nominalCoverage: 0.6, reason: 'No validated convergent quantile solver is installed; earlier results are invalid methodology evidence.' },
+      bestBaseline: null,
+      bestStatisticalChallenger: null,
+      decision: 'NO_MODEL_READY',
+      decisionReason: 'No automatic ranking or promotion. Canonical provenance, sufficient segmented holdouts, and independent validation are required. Global median is diagnostic only.',
       recommendedBenchmarkCandidates: models
     },
     privacy: privacyGuarantee()
   };
 }
 
-function evaluateModel(model: ShadowBenchmarkModelName, folds: Fold[]): ShadowBenchmarkMetric {
-  const predictions: Prediction[] = [];
-  for (const fold of folds) {
-    const predictor = predictForModel(model, fold.train);
-    for (const record of fold.test) {
-      const raw = predictor(record);
-      if (typeof raw === 'number') {
-        predictions.push({ actual: record.targetFinalCompletedPrice, predicted: raw, tier: record.tier });
-      } else {
-        predictions.push({
-          actual: record.targetFinalCompletedPrice,
-          predicted: raw.predicted,
-          lower: raw.lower,
-          upper: raw.upper,
-          tier: record.tier
-        });
-      }
-    }
-  }
-  return aggregatePredictions(model, predictions);
-}
-
-function aggregatePredictions(model: ShadowBenchmarkModelName, predictions: Prediction[]): ShadowBenchmarkMetric {
+export function aggregatePredictions(model: ShadowBenchmarkModelName, predictions: Prediction[]): ShadowBenchmarkMetric {
   const absErrors = predictions.map((prediction) => Math.abs(prediction.actual - prediction.predicted));
   const squaredErrors = predictions.map((prediction) => (prediction.actual - prediction.predicted) ** 2);
   const pctErrors = predictions.map((prediction) => Math.abs(prediction.actual - prediction.predicted) / prediction.actual);
   const underpriced = predictions.filter((prediction) => prediction.predicted < prediction.actual);
   const largeUnderquotes = predictions.filter((prediction) => prediction.actual - prediction.predicted >= Math.max(250, prediction.actual * 0.2));
-  const covered = predictions.filter(
-    (prediction) =>
-      prediction.lower !== undefined &&
-      prediction.upper !== undefined &&
-      prediction.actual >= prediction.lower &&
-      prediction.actual <= prediction.upper
-  );
 
   return {
     model,
     evaluatedRows: predictions.length,
-    mae: roundMoney(average(absErrors)),
-    medianAbsoluteError: roundMoney(median(absErrors)),
-    rmse: roundMoney(Math.sqrt(average(squaredErrors))),
-    meanAbsolutePercentageError: roundRate(average(pctErrors)),
-    underpricingFrequency: roundRate(underpriced.length / predictions.length),
-    totalUnderpricingDollars: roundMoney(
+    mae: predictions.length ? roundMoney(average(absErrors)) : null,
+    medianAbsoluteError: predictions.length ? roundMoney(median(absErrors)) : null,
+    rmse: predictions.length ? roundMoney(Math.sqrt(average(squaredErrors))) : null,
+    meanAbsolutePercentageError: predictions.length ? roundRate(average(pctErrors)) : null,
+    belowHistoricalPriceFrequency: predictions.length ? roundRate(underpriced.length / predictions.length) : null,
+    totalShortfallVsHistoricalPrice: predictions.length ? roundMoney(
       underpriced.reduce((sum, prediction) => sum + prediction.actual - prediction.predicted, 0)
-    ),
-    largeUnderquoteFrequency: roundRate(largeUnderquotes.length / predictions.length),
-    quantileCoverage: model === 'regularized_quantile_regression' ? roundRate(covered.length / predictions.length) : null
+    ) : null,
+    largeShortfallVsHistoricalPriceFrequency: predictions.length ? roundRate(largeUnderquotes.length / predictions.length) : null,
+    quantileCoverage: model === 'regularized_quantile_regression' ? intervalCoverage(predictions.map((prediction) => ({ actual: prediction.actual, lower: prediction.lower ?? NaN, upper: prediction.upper ?? NaN }))).coverage : null
   };
 }
 
@@ -602,7 +611,8 @@ function tierCounts(records: ShadowPricingRecord[]) {
     small_routine: 0,
     mid_tier: 0,
     large_project: 0,
-    special_risk_manual_review: 0
+    special_risk_manual_review: 0,
+    unknown_inputs: 0
   };
   for (const record of records) counts[record.tier] += 1;
   return counts;
@@ -610,22 +620,9 @@ function tierCounts(records: ShadowPricingRecord[]) {
 
 function createManifest(returnedRows: number, records: ShadowPricingRecord[], codeCommit: string): ShadowBenchmarkManifest {
   const dates = records.map((record) => record.estimateDate).sort((a, b) => a.getTime() - b.getTime());
-  const digest = crypto
-    .createHash('sha256')
-    .update(
-      JSON.stringify(
-        records.map((record) => ({
-          d: formatDate(record.estimateDate),
-          t: record.tier,
-          f: record.features,
-          yBucket: Math.round(record.targetFinalCompletedPrice / 50) * 50
-        }))
-      )
-    )
-    .digest('hex');
 
   return {
-    manifestVersion: 'shadow-pricing-benchmark-manifest-v1',
+    manifestVersion: 'shadow-pricing-benchmark-manifest-v2',
     generatedAt: new Date().toISOString(),
     sourceAlias: 'authorized_historical_ml_data_sheet',
     tabName: EXPECTED_TAB_NAME,
@@ -638,7 +635,6 @@ function createManifest(returnedRows: number, records: ShadowPricingRecord[], co
     },
     featureDefinitionVersion: FEATURE_DEFINITION_VERSION,
     targetDefinitionVersion: TARGET_DEFINITION_VERSION,
-    datasetChecksum: digest,
     codeCommit
   };
 }
@@ -693,16 +689,32 @@ export async function readShadowBenchmarkRows(env = process.env): Promise<Shadow
   }
 
   const serviceAccount = parseServiceAccountJson(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  delete env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const auth = new google.auth.JWT({
     email: serviceAccount.client_email,
     key: serviceAccount.private_key,
     scopes: [SHADOW_BENCHMARK_READONLY_SCOPE]
   });
   const sheets = google.sheets({ version: 'v4', auth });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: EXPECTED_SPREADSHEET_ID,
-    range: EXPECTED_TAB_NAME
-  });
-
-  return rowsFromSheetValues((response.data.values ?? []) as string[][]);
+  try {
+    // One read obtains values and verifies the authorized tab's numeric identity.
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId: EXPECTED_SPREADSHEET_ID,
+      ranges: [EXPECTED_TAB_NAME],
+      includeGridData: true,
+      fields: 'sheets(properties(sheetId,title),data(rowData(values(formattedValue))))'
+    }, { retry: false, timeout: 30000 });
+    const sheet = response.data.sheets?.[0];
+    if (response.data.sheets?.length !== 1 || sheet?.properties?.sheetId !== SHADOW_BENCHMARK_SHEET_GID || sheet.properties.title !== EXPECTED_TAB_NAME) {
+      throw new Error('Authorized worksheet identity mismatch.');
+    }
+    const values = sheet.data?.[0]?.rowData?.map((row) => (row.values ?? []).map((cell) => cell.formattedValue ?? '')) ?? [];
+    return rowsFromSheetValues(values);
+  } finally {
+    delete serviceAccount.private_key;
+    delete serviceAccount.client_email;
+    auth.key = undefined;
+    auth.email = undefined;
+    auth.setCredentials({});
+  }
 }
