@@ -1,5 +1,9 @@
 # PR 8: confidence and strict withholding
 
+Historical investigation. Score-source findings remain valid, but the strict
+under-85 display policy is superseded in PR 9 by
+[internal provisional estimates](internal-provisional-estimates.md).
+
 Starting commit: c12f7fe071d9c833a5d0c33eebf7edee31a8a3b7. Preserved before edits
 with pushed annotated tag preview-before-strict-withholding-c12f7fe. Retained
 Preview: dpl_6LKxFnwqXNStrXrYy7yXsyLd1wGa,

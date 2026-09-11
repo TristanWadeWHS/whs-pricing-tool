@@ -20,6 +20,22 @@ export const FACT_IDS: FactId[] = ['hidden', 'contents', 'dismantling', 'dimensi
 export function unknownAnswer(answer: string) {
   return /\b(?:not sure|unsure|unknown|don'?t know|do not know|maybe|uncertain)\b/i.test(answer);
 }
+export function normalizeClarificationAnswer(answer: ClarificationAnswer): ClarificationAnswer {
+  const text = answer.answer.trim();
+  if (answer.notSure || unknownAnswer(text)) return { ...answer, answer: '', notSure: true };
+  if (answer.id === 'hidden') {
+    if (/^(?:no|none|nothing else|nothing hidden|all shown|all included)[.!]?$/i.test(text)) {
+      return { ...answer, answer: 'No additional material needs removal; all removal items are shown.' };
+    }
+    if (/^(?:yes|some|more)[.!]?$/i.test(text)) return { ...answer, answer: 'Additional removal items exist; quantity and scope are unknown.' };
+  }
+  if (answer.id === 'dismantling' && /^(?:no|none|not needed|not required)[.!]?$/i.test(text)) {
+    return { ...answer, answer: 'No disassembly or detachment is required.' };
+  }
+  if (answer.id === 'contents' && /^(?:no|yes)[.!]?$/i.test(text)) return { ...answer, answer: '', notSure: true };
+  if (answer.id === 'dimensions' && /^(?:no|none)[.!]?$/i.test(text)) return { ...answer, answer: '', notSure: true };
+  return { ...answer, answer: text };
+}
 const contradictionKind: Record<FactId, ShadowEvidence['contradictions'][number]['kind']> = {
   hidden: 'additional_material_visible', contents: 'different_contents_visible',
   dismantling: 'fastener_visible', dimensions: 'dimension_reference_disagrees'
@@ -36,9 +52,9 @@ function stance(id: FactId, text: string) {
   return null;
 }
 const notePatterns: Record<FactId, RegExp> = {
-  hidden: /nothing\s+(?:hidden|underneath|behind|outside)|(?:no|nothing is)\s+hidden|only\s+(?:the\s+)?(?:items|material|things)\s+(?:shown|pictured|in the photo)/i,
+  hidden: /nothing\s+(?:hidden|underneath|behind|outside)|(?:no|nothing is)\s+(?:hidden|additional)|all.*(?:shown|pictured).*included|only\s+(?:the\s+)?(?:items|material|things)\s+(?:shown|pictured|in the photo)/i,
   contents: /(?:boxes|bags|containers)\s+(?:contain|hold|are filled with)\s+[^.!?]+/i,
-  dismantling: /(?:no|does not need|do not need|needs?|requires?)\s+(?:disassembly|dismantling)|(?:not|nothing is|is)\s+(?:attached|bolted)/i,
+  dismantling: /(?:no|does not need|do not need|needs?|requires?)\s+(?:disassembly|dismantling)|(?:not|nothing is|is)\s+(?:attached|bolted)|(?:disassembly|dismantling)\s*:\s*(?:no|none|not required)/i,
   dimensions: /\d+(?:\.\d+)?\s*(?:feet|foot|ft\b|inches|yards|cm\b|meters)/i
 };
 
@@ -46,7 +62,8 @@ const notePatterns: Record<FactId, RegExp> = {
 export function reconcileClarificationFacts(notes: string, answers: ClarificationAnswer[],
   contradictions: ShadowEvidence['contradictions'] = [], photoCount = 0): ClarificationFact[] {
   return FACT_IDS.map((id) => {
-    const answer = answers.find((entry) => entry.id === id);
+    const originalAnswer = answers.find((entry) => entry.id === id);
+    const answer = originalAnswer ? normalizeClarificationAnswer(originalAnswer) : undefined;
     const fromNotes = notes.split(/[.!?](?:\s|$)|\n/).filter((sentence) => notePatterns[id].test(sentence)).join('. ').trim();
     const value = answer ? answer.answer.trim() : fromNotes;
     const unknown = !value || answer?.notSure || unknownAnswer(value)

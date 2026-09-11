@@ -1,5 +1,10 @@
 # Internal Preview: reconciled facts and shadow volume
 
+Current PR 9 policy: [internal provisional estimates](internal-provisional-estimates.md).
+The recovery checkpoint below remains preserved history. Its under-85 withholding
+rule is superseded; live inventory extraction is still deferred. Shadow diagnostics
+are collapsed and do not determine provisional-price availability.
+
 ## Recovery checkpoint: inventory extraction deferred
 
 The first PR 9 Preview at b2712d71c8b8c0a54b6e8c5889f65a22f0fe24bd failed a

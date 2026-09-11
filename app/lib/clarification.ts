@@ -2,9 +2,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { VisionAnalysis } from './analysis-schema';
 import type { ValidatedEstimateRequest } from './request-validation';
-import { factReviewIssues, reconcileClarificationFacts } from './clarification-facts';
+import { factReviewIssues, reconcileClarificationFacts, normalizeClarificationAnswer } from './clarification-facts';
 
 export const CLARIFICATION_THRESHOLD = 0.85;
+export const MAX_CLARIFICATION_ROUNDS = 3;
 export const QUESTION_TEXT = {
   hidden: 'Is anything else underneath, behind, or outside the photos that needs removal?',
   contents: 'What is inside the closed boxes, bags, or containers being removed?',
@@ -19,7 +20,7 @@ export function needsClarification(analysis: VisionAnalysis) {
   return analysis.confidencePercent / 100 < CLARIFICATION_THRESHOLD;
 }
 
-export function clarificationQuestions(analysis: VisionAnalysis, notes: string) {
+export function clarificationQuestions(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[] = [], photoCount = 0) {
   const signals = [...analysis.questionsToAsk, ...analysis.uncertaintyNotes, ...analysis.warnings].join(' ');
   const topics = [
     { id: 'hidden' as const, relevant: /hidden|underneath|behind|outside.*photo|additional.*(?:item|material)|out of frame/i,
@@ -33,8 +34,17 @@ export function clarificationQuestions(analysis: VisionAnalysis, notes: string) 
   ];
   // Fixed actionable templates prevent model-generated prices/instructions leaking into this phase.
   // Stairs, carry, planned workers and selected job type are already structured inputs.
-  return topics.filter((topic) => topic.relevant.test(signals) && !topic.answered.test(notes))
-    .map(({ id }) => ({ id, text: QUESTION_TEXT[id] }));
+  const facts = reconcileClarificationFacts(notes, answers, analysis.shadow?.contradictions, photoCount);
+  // Removal scope and dense contents affect loads/disposal first; then labor, then dimensions.
+  const priority = { hidden: 4, contents: 3, dismantling: 2, dimensions: 1 };
+  return topics.filter((topic) => {
+    const fact = facts.find((entry) => entry.id === topic.id)!;
+    if (fact.state === 'resolved' || fact.state === 'not_applicable') return false;
+    return fact.state === 'conflicting' || topic.relevant.test(signals);
+  }).sort((a, b) => Number(answers.some((answer) => answer.id === a.id)) - Number(answers.some((answer) => answer.id === b.id))
+    || priority[b.id] - priority[a.id]).slice(0, 2)
+    .map(({ id }) => ({ id, text: id === 'hidden' && answers.some((a) => a.id === id)
+      ? 'What additional items need removal, and roughly how many? If none, say nothing else.' : QUESTION_TEXT[id] }));
 }
 
 function sign(value: string) {
@@ -51,19 +61,29 @@ function contextFingerprint(context: ValidatedEstimateRequest) {
   return digest.digest('base64url');
 }
 
-export function issueClarification(context: ValidatedEstimateRequest, questions: ReturnType<typeof clarificationQuestions>, now = Date.now()) {
-  const payload = Buffer.from(JSON.stringify({ version: 1, expires: now + 30 * 60_000,
-    context: contextFingerprint(context), ids: questions.map((question) => question.id) })).toString('base64url');
+export function issueClarification(context: ValidatedEstimateRequest, questions: ReturnType<typeof clarificationQuestions>, now = Date.now(),
+  options: { history?: ClarificationAnswer[]; round?: number; expires?: number } = {}) {
+  const history = options.history ?? []; const round = options.round ?? 1;
+  if (!questions.length || questions.length > 2 || round > MAX_CLARIFICATION_ROUNDS) throw new Error('Invalid round.');
+  const payload = Buffer.from(JSON.stringify({ version: 2, expires: options.expires ?? now + 30 * 60_000,
+    context: contextFingerprint(context), ids: questions.map((question) => question.id), round,
+    history: sign(JSON.stringify(history)).toString('base64url') })).toString('base64url');
   return `${payload}.${sign(payload).toString('base64url')}`;
 }
 
-const answersSchema = z.object({ token: z.string().max(2000), answers: z.array(z.object({
+const answerSchema = z.object({
   id: z.enum(ids), answer: z.string().trim().max(400), notSure: z.boolean()
-}).strict().refine((answer) => answer.notSure ? !answer.answer : Boolean(answer.answer))).min(1).max(4) }).strict();
+}).strict().refine((answer) => answer.notSure ? !answer.answer : Boolean(answer.answer));
+const answersSchema = z.object({ token: z.string().max(2000), answers: z.array(answerSchema).min(1).max(2),
+  history: z.array(answerSchema).max(4).default([]) }).strict();
 
 export function verifyClarification(raw: FormDataEntryValue | null, context: ValidatedEstimateRequest, now = Date.now()) {
+  return verifyClarificationRound(raw, context, now)?.answers ?? null;
+}
+
+export function verifyClarificationRound(raw: FormDataEntryValue | null, context: ValidatedEstimateRequest, now = Date.now()) {
   if (raw === null) return null;
-  if (typeof raw !== 'string' || raw.length > 4000) throw new Error('Invalid clarification.');
+  if (typeof raw !== 'string' || raw.length > 8000) throw new Error('Invalid clarification.');
   const submission = answersSchema.parse(JSON.parse(raw));
   const parts = submission.token.split('.');
   if (parts.length !== 2) throw new Error('Invalid clarification.');
@@ -71,24 +91,28 @@ export function verifyClarification(raw: FormDataEntryValue | null, context: Val
   const actual = Buffer.from(parts[1], 'base64url');
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Invalid clarification.');
   const ticket = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
-  if (ticket.version !== 1 || !Number.isFinite(ticket.expires) || ticket.expires <= now
+  if (ticket.version !== 2 || !Number.isFinite(ticket.expires) || ticket.expires <= now
+    || !Number.isInteger(ticket.round) || ticket.round < 1 || ticket.round > MAX_CLARIFICATION_ROUNDS
+    || ticket.history !== sign(JSON.stringify(submission.history)).toString('base64url')
+    || new Set(submission.history.map((answer) => answer.id)).size !== submission.history.length
     || ticket.context !== contextFingerprint(context) || !Array.isArray(ticket.ids)
     || submission.answers.length !== ticket.ids.length || new Set(submission.answers.map((answer) => answer.id)).size !== ticket.ids.length
     || !submission.answers.every((answer) => ticket.ids.includes(answer.id))) throw new Error('Invalid clarification.');
-  return submission.answers;
+  const merged = new Map(submission.history.map((answer) => [answer.id, answer]));
+  for (const answer of submission.answers) merged.set(answer.id, answer);
+  return { answers: [...merged.values()], round: ticket.round as number, expires: ticket.expires as number };
 }
 
 export function hasUnresolvedAnswers(answers: ClarificationAnswer[]) {
-  return answers.some((answer) => answer.notSure || /^(?:not sure|unsure|unknown|i don'?t know)[.!]?$/i.test(answer.answer));
+  return answers.some((answer) => normalizeClarificationAnswer(answer).notSure);
 }
 
 export function unresolvedClarificationIssues(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[], photoCount = 0) {
-  const topics = new Set(clarificationQuestions(analysis, notes).map((question) => question.id));
+  const topics = new Set(clarificationQuestions(analysis, notes, answers, photoCount).map((question) => question.id));
   for (const answer of answers) if (hasUnresolvedAnswers([answer])) topics.add(answer.id);
   const facts = reconcileClarificationFacts(notes, answers, analysis.shadow?.contradictions, photoCount);
   // Fixed issue labels cannot leak prices or instructions from raw model text.
-  return ['The uncalibrated analysis-confidence score remains below 85/100. Manager review is required before any pricing.',
-    ...factReviewIssues(facts, [...topics]),
+  return [...factReviewIssues(facts, [...topics]),
     ...(analysis.heavyDebrisRisk !== 'low' ? ['Existing heavy-material safety review rule still applies.'] : []),
     ...(analysis.hiddenDebrisRisk !== 'low' ? ['Existing hidden-material safety review rule still applies; this does not invalidate a scope answer.'] : []),
     ...(analysis.difficulty !== 'easy' ? ['Existing labor safety review rule still applies.'] : []),
