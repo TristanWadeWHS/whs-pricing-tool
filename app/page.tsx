@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { HistoricalReference } from './historical-reference';
 import { failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
 import {
@@ -213,6 +214,8 @@ export default function Home() {
             <h2>${result.pricing.suggestedQuote}</h2>
             <span>{result.pricing.recommendedRange}</span>
           </div>
+
+          <HistoricalReference stairs={result.inputs?.stairs} projectedLoads={result.analysis.estimatedLoadCount} />
 
           <div className="summaryBox">
             <h3>Estimate Quality</h3>
