@@ -92,6 +92,11 @@ export async function POST(req: NextRequest) {
       }, { headers: { 'Cache-Control': 'no-store' } });
     }
     const quoteStatus = determineQuoteStatus(inputs, analysis);
+    const evidenceReview = assessment.pricingFacts.reviewReasons.filter((reason) => !reason.startsWith('Handling requirements are unverified'));
+    if (evidenceReview.length) {
+      quoteStatus.status = 'needs_manager_review';
+      quoteStatus.reasons.push(...evidenceReview);
+    }
     if (hasUnresolvedAnswers(answers) || assessment.facts.some((fact) => fact.state === 'conflicting'
       || (fact.source === 'signed_clarification' && fact.state === 'unknown'))) {
       quoteStatus.status = 'needs_manager_review';
@@ -102,16 +107,19 @@ export async function POST(req: NextRequest) {
       quoteStatus.status = 'conditional_estimate';
     }
     const firmQuoteEligible = quoteStatus.status === 'direct_quote_eligible';
-    const pricing = priceJob(inputs, analysis);
+    const pricing = priceJob(inputs, analysis, assessment.pricingFacts);
     const customerMessage = firmQuoteEligible ? buildCustomerMessage(pricing, quoteStatus.status) : null;
 
     return NextResponse.json({
       status: quoteStatus.status,
       statusReasons: firmQuoteEligible ? ['Existing firm-quote eligibility checks passed; staff approval is still required.']
         : ['Staff review is required before quoting.', ...quoteStatus.reasons.filter((reason) => !reason.startsWith('Meets provisional'))
-          .map((reason) => `Retained firm-quote safeguard: ${reason.replace('Confidence is', 'Uncalibrated analysis-confidence score is')}`)],
+          .map((reason) => assessment.pricingFacts.hidden.state === 'resolved' && /Hidden-debris uncertainty|Analysis warnings may materially/.test(reason)
+            ? 'Removal scope is answered; staff must verify the retained model review flag. No hidden-scope surcharge applies.'
+            : `Retained firm-quote safeguard: ${reason.replace('Confidence is', 'Uncalibrated analysis-confidence score is')}`)],
       estimateKind: firmQuoteEligible ? 'quote_candidate' : 'provisional', firmQuoteEligible,
       estimateLabel: INTERNAL_ESTIMATE_LABEL, assumptions: assessment.assumptions, priceDrivers: assessment.drivers, clarification,
+      loadUnits: assessment.pricingFacts.load,
       confidenceThreshold: quoteStatus.threshold,
       analysisConfidence: analysisConfidence(analysis.confidencePercent),
       priceWithheld: false,

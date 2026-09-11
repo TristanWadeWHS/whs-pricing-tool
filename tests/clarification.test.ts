@@ -24,6 +24,22 @@ function answerForm(clarification: { token: string; history: ClarificationAnswer
 }
 
 describe('internal pricing and firm-quote separation', () => {
+  it('uses reconciled brief answers for adjustment pricing and explanations at a fixed 55%', async () => {
+    const core = sampleAnalysis({ confidencePercent: 73, estimatedLoadPercent: 55, estimatedLoadCount: 0.55,
+      heavyDebrisRisk: 'medium', hiddenDebrisRisk: 'medium', difficulty: 'medium', questionsToAsk: ['What is inside the boxes?', 'Anything hidden?'] });
+    parseMock.mockResolvedValueOnce({ output_parsed: core });
+    const initial = (await post()).body;
+    parseMock.mockResolvedValueOnce({ output_parsed: core });
+    const { body } = await post(answerForm(initial.clarification, [
+      { id: 'contents', answer: 'Lightweight household goods; all items easily carried by one person.', notSure: false },
+      { id: 'hidden', answer: 'nothing else', notSure: false }
+    ]));
+    expect(body.pricing.adjustments).toBe(0); expect(body.pricing.recommendedRange).toBe('$215–$295');
+    expect(body.priceDrivers.find((driver: { topic: string }) => driver.topic === 'handling').message).toContain('Handling: low');
+    expect(body.priceDrivers.find((driver: { topic: string }) => driver.topic === 'hidden').state).toBe('resolved');
+    expect(body.loadUnits.cubicYards).toBe(6.6); expect(body.loadUnits.trailerEquivalents).toBe(0.55);
+    expect(body.firmQuoteEligible).toBe(false); expect(body.pricing.customerMessage).toBeNull();
+  });
   it.each([73, 84, 85, 86])('allows supported internal pricing at %s with unchanged formula', async (confidencePercent) => {
     parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis({ confidencePercent }) });
     const { body } = await post(); expect(canDisplayEstimate(body)).toBe(true);
@@ -86,10 +102,12 @@ describe('brief answers, evidence and signed rounds', () => {
     expect(normalizeClarificationAnswer({ id: 'contents', answer: 'no', notSure: false }).notSure).toBe(true);
     const analysis = sampleAnalysis({ warnings: ['Hidden items may exist.', 'Disassembly unknown.', 'Boxes may contain heavy items.'], heavyDebrisRisk: 'medium' });
     expect(clarificationQuestions(analysis, '', answers)).toEqual([]);
-    const assessment = assessInternalEstimate(sampleInputs(), analysis, answers, 1); expect(assessment.drivers.every((d) => d.state === 'resolved')).toBe(true);
-    expect(assessment.drivers.find((d) => d.topic === 'heavy')?.evidence.join(' ')).toContain('Model heavy flag');
+    const assessment = assessInternalEstimate(sampleInputs(), analysis, answers, 1);
+    expect(assessment.drivers.find((d) => d.topic === 'hidden')?.state).toBe('resolved');
+    expect(assessment.drivers.find((d) => d.topic === 'labor')?.state).toBe('resolved');
+    expect(assessment.pricingFacts.handling.level).toBe('unknown');
     const observed = assessInternalEstimate(sampleInputs(), { ...analysis, observedFacts: ['Concrete blocks visible beside the boxes.'] }, answers, 1);
-    expect(observed.drivers.find((d) => d.topic === 'heavy')?.state).toBe('review'); expect(observed.drivers.find((d) => d.topic === 'heavy')?.evidence.join(' ')).toContain('Concrete blocks');
+    expect(observed.drivers.find((d) => d.topic === 'material / disposal')?.state).toBe('review'); expect(observed.drivers.find((d) => d.topic === 'material / disposal')?.evidence.join(' ')).toContain('Concrete blocks');
   });
   it('limits questions to two, skips resolved topics and prioritizes previously unasked questions', () => {
     const analysis = sampleAnalysis({ questionsToAsk: ['Anything hidden?', 'What is inside boxes?', 'Disassembly?', 'Dimensions unclear?'] });

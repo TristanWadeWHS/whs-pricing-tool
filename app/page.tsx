@@ -263,6 +263,10 @@ export default function Home() {
           <h2>{result.pricing.recommendedRange}</h2>
         </div>
         <p><b>Review status:</b> {formatStatus(result.status)}</p>
+        {result.loadUnits && <div aria-label="Model-estimated loaded volume">
+          <p><b>Model-estimated loaded volume:</b> {result.loadUnits.percent}% = {result.loadUnits.cubicYards} cubic yards = {result.loadUnits.trailerEquivalents} trailer equivalents ({result.loadUnits.trailerCubicYards}-yard trailer).</p>
+          <p>Whole volume-only hauling trips: {result.loadUnits.volumeOnlyTrips}. Not payload or towing approval.</p>
+        </div>}
         <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul>
         <h3>Assumptions</h3>
         <ul>{result.assumptions?.map((value) => <li key={value}>{value}</li>)}</ul>
@@ -336,15 +340,13 @@ export default function Home() {
             {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
           </div>
 
-          <details><summary>Core analysis and unchanged pricing calculation</summary>
+          <details><summary>Core analysis and pricing calculation</summary>
           <div className="grid resultGrid">
             <div>
               <h3>AI Photo Estimate</h3>
-              <p><b>Load:</b> {result.analysis.estimatedLoadRange} ({result.analysis.estimatedLoadPercent}%)</p>
-              <p><b>Estimated loads:</b> {result.analysis.estimatedLoadCount}</p>
               <p><b>Material:</b> {result.analysis.materialType}</p>
-              <p><b>Difficulty:</b> {result.analysis.difficulty}</p>
-              <p><b>Heavy risk:</b> {result.analysis.heavyDebrisRisk}</p>
+              <p><b>Model labor flag (not a surcharge):</b> {result.analysis.difficulty}</p>
+              <p><b>Model material/disposal risk (not handling):</b> {result.analysis.heavyDebrisRisk}</p>
             </div>
 
             <div>

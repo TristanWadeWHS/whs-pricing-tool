@@ -79,6 +79,9 @@ export function buildAnalysisPrompt(inputs: JobInputs) {
   return `You are analyzing junk removal job photos for Wade Home Services in Orange County, CA.
 
 Return a conservative structured estimate using compacted/loaded volume, not loose unprocessed appearance.
+Estimate efficiently loaded volume with supported nesting, stacking, folding, flattening and appropriate breakdown. Filled boxes retain their contents and do not flatten like empty boxes. Do not assume chairs dismantle easily or substantial demolition is free. List the specific supported packing assumptions in assumptions; unknown packing stays explicit. Never apply a blanket compaction discount to an already-compacted estimate.
+estimatedLoadPercent is the single volume basis: 55 percent means 6.6 cubic yards and estimatedLoadCount=0.55 trailer equivalents, not one whole hauling trip. Weight, payload and towing constraints are separate; do not invent their limits.
+WHS handling definitions: LOW means one person carries easily; MEDIUM means one person can move the item but requires handling equipment; HIGH means two or more people are required. Report specific supporting handling observations in observedFacts and employee claims separately. Item names, pile density, closed boxes and uncertainty alone do not establish handling needs. heavyDebrisRisk remains a separate material/disposal safety flag, not a handling fee. Routine carrying, lifting, loading, organizing, nesting and ordinary packing are included. Exceptional labor needs specific evidence such as substantial demolition or repeated long-distance movement; do not turn generic uncertainty into exceptional work.
 
 Business context:
 - Trailer capacity is 12 cubic yards.

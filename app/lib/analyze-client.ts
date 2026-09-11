@@ -13,6 +13,7 @@ export type Result = {
   estimateLabel?: string;
   assumptions?: string[];
   priceDrivers?: PriceDriver[];
+  loadUnits?: { percent: number; cubicYards: number; trailerEquivalents: number; volumeOnlyTrips: number; trailerCubicYards: number };
   priceWithheld?: boolean;
   analysisConfidence?: { score: number; scale: '1-100'; source: 'model_reported'; calibrated: false };
   statusReasons?: string[];

@@ -8,15 +8,18 @@ const browser = await chromium.launch({ headless: true, channel: 'msedge' });
 const context = await browser.newContext({ httpCredentials: { username: 'staff', password: 'synthetic-preview-test' } });
 const page = await context.newPage(); page.setDefaultTimeout(20000);
 const errors = []; page.on('pageerror', (error) => errors.push(error.message));
-const analysis = { estimatedLoadPercent: 50, estimatedLoadCount: 0.5, estimatedLoadRange: 'Synthetic half load', materialType: 'mixed junk',
+const analysis = { estimatedLoadPercent: 55, estimatedLoadCount: 0.55, estimatedLoadRange: 'Synthetic loaded volume', materialType: 'mixed junk',
   difficulty: 'easy', heavyDebrisRisk: 'low', confidencePercent: 73, photoAngleQuality: 'good', hiddenDebrisRisk: 'low',
   visibleItems: ['Synthetic boxes'], observedFacts: ['Synthetic boxes in side yard'], employeeProvidedFacts: [], assumptions: [], uncertaintyNotes: [], warnings: [], questionsToAsk: [] };
 const base = { status: 'conditional_estimate', estimateKind: 'provisional', priceWithheld: false, firmQuoteEligible: false,
   estimateLabel: 'Internal estimate \u2014 requires review before quoting', analysis, inputs: { stairs: 'none' }, confidenceThreshold: 85,
   statusReasons: ['Staff review required before quoting.'], assumptions: ['Shown items only; short carry, no stairs.', 'Policy range, not a statistical prediction interval.'],
-  priceDrivers: [{ topic: 'contents', state: 'resolved', message: 'Contents answered.', evidence: ['Employee answer: lightweight decorations'] }],
+  priceDrivers: [{ topic: 'handling', state: 'resolved', message: 'Handling: low. No automatic heavy adjustment.', evidence: ['Employee: all items easily carried by one person.'] },
+    { topic: 'hidden', state: 'resolved', message: 'Additional scope: resolved. No uncertainty surcharge.', evidence: ['All shown items included.'] },
+    { topic: 'labor', state: 'resolved', message: 'Routine lifting, loading and packing included. No generic labor surcharge.', evidence: ['Short carry, no stairs.'] }],
+  loadUnits: { percent: 55, cubicYards: 6.6, trailerEquivalents: 0.55, volumeOnlyTrips: 1, trailerCubicYards: 12 },
   diagnostics: { status: 'unavailable', reason: 'Live inventory extraction is deferred; shadow failure does not affect pricing.' },
-  pricing: { suggestedQuote: 230, recommendedRange: '$190 - $270', minimumPrice: 130, baseLoadPrice: 225, adjustments: 0, adjustmentNotes: [], customerMessage: null } };
+  pricing: { suggestedQuote: 255, recommendedRange: '$215 - $295', minimumPrice: 130, baseLoadPrice: 248, adjustments: 0, adjustmentNotes: [], customerMessage: null } };
 let requests = 0; let original; let history; let release; let staleRelease;
 await page.route('**/api/historical-reference', (route) => route.fulfill({ json: { status: 'abstained', reasons: ['Synthetic scope unavailable.'] } }));
 await page.route('**/api/analyze', async (route) => {
@@ -58,9 +61,12 @@ try {
   assert.equal(await page.locator('[data-nextjs-dialog], .vite-error-overlay').count(), 0);
   const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 1600; return c.toDataURL().split(',')[1]; });
   await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
-  await page.locator('textarea[name=notes]').fill('Synthetic lightweight side-yard junk; all shown items included.');
+  await page.locator('textarea[name=notes]').fill('Synthetic lightweight side-yard junk; all shown items included. All items easily carried by one person.');
   await page.getByRole('button', { name: 'Analyze Job', exact: true }).click();
-  await page.getByRole('heading', { name: '$190 - $270', exact: true }).waitFor();
+  await page.getByRole('heading', { name: '$215 - $295', exact: true }).waitFor();
+  assert((await page.getByRole('region', { name: 'Internal estimate' }).innerText()).includes('55% = 6.6 cubic yards = 0.55 trailer equivalents'));
+  assert((await page.locator('body').innerText()).includes('Whole volume-only hauling trips: 1. Not payload or towing approval.'));
+  assert((await page.locator('body').innerText()).includes('Handling: low. No automatic heavy adjustment.'));
   assert.equal(await page.locator('.clarificationQuestion').count(), 2);
   assert.equal(await page.locator('details').filter({ has: page.getByText('Technical shadow diagnostics', { exact: true }) }).getAttribute('open'), null);
   assert.equal(await page.locator('textarea[readonly]').count(), 0);
@@ -72,7 +78,7 @@ try {
   await page.locator('#answer-contents').evaluate((node) => node.form.requestSubmit());
   assert.equal(requests, 2); release();
   await page.getByRole('button', { name: 'Refine estimate', exact: true }).waitFor();
-  assert.equal(await page.locator('.quoteBox h2').innerText(), '$190 - $270');
+  assert.equal(await page.locator('.quoteBox h2').innerText(), '$215 - $295');
   assert((await page.locator('body').innerText()).includes('73/100'));
   await page.getByRole('button', { name: 'Refine estimate', exact: true }).click();
   await page.getByRole('button', { name: 'Not sure / Show provisional estimate', exact: true }).click();
@@ -84,7 +90,7 @@ try {
   assert.equal(await page.locator('.quoteBox, .historicalReference').count(), 0);
   assert(await page.getByRole('checkbox', { name: 'Not sure', exact: true }).isChecked());
   await page.getByRole('button', { name: 'Reassess estimate', exact: true }).click();
-  await page.getByRole('heading', { name: '$190 - $270', exact: true }).waitFor();
+  await page.getByRole('heading', { name: '$215 - $295', exact: true }).waitFor();
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -101,5 +107,5 @@ try {
   assert.equal(await page.locator('.quoteBox, .historicalReference').count(), 0);
   assert(!(await page.locator('body').innerText()).includes('$'));
   assert.deepEqual(errors, []);
-  console.log('PASS: mocked low-score provisional range, two brief answers, optional round, skip, signed-history transport, unchanged photos/details, retry retention, duplicate/stale guards, failure/unbounded withholding, collapsed diagnostics, desktop/mobile. No live OpenAI or Sheets calls.');
+  console.log('PASS: mocked 55%/6.6-yard/0.55-equivalent consistency, separate volume-only trip, low handling/no generic fees, low-score provisional range, two brief answers, optional round, skip, signed-history transport, unchanged photos/details, retry retention, duplicate/stale guards, failure/unbounded withholding, collapsed diagnostics, desktop/mobile. No live OpenAI or Sheets calls.');
 } finally { await browser.close(); }

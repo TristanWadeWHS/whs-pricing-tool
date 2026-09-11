@@ -1,7 +1,8 @@
 import type { VisionAnalysis } from './analysis-schema';
 import type { JobInputs } from './pricing';
 import type { ClarificationAnswer } from './clarification';
-import { FACT_LABELS, normalizeClarificationAnswer, reconcileClarificationFacts } from './clarification-facts';
+import { normalizeClarificationAnswer, reconcileClarificationFacts } from './clarification-facts';
+import { reconcilePricingFacts } from './pricing-facts';
 
 export const INTERNAL_ESTIMATE_LABEL = 'Internal estimate \u2014 requires review before quoting';
 export type PriceDriver = { topic: string; state: 'resolved' | 'review' | 'unknown'; message: string; evidence: string[] };
@@ -18,6 +19,7 @@ function safeEvidence(text: string) {
 
 export function assessInternalEstimate(inputs: JobInputs, analysis: VisionAnalysis, answers: ClarificationAnswer[], photoCount: number) {
   const facts = reconcileClarificationFacts(inputs.notes, answers, analysis.shadow?.contradictions, photoCount);
+  const pricingFacts = reconcilePricingFacts(inputs, analysis, answers, photoCount);
   const fact = (id: ClarificationAnswer['id']) => facts.find((entry) => entry.id === id)!;
   const text = [...analysis.uncertaintyNotes, ...analysis.warnings, analysis.estimatedLoadRange].join('. ');
   const essentialReasons: string[] = [];
@@ -35,7 +37,7 @@ export function assessInternalEstimate(inputs: JobInputs, analysis: VisionAnalys
     essentialReasons.push('Additional removal items were confirmed, but their type and quantity are unspecified. The total job cannot yet be priced.');
     essentialQuestions.push('hidden');
   }
-  if (fact('hidden').state === 'conflicting') {
+  if (pricingFacts.hidden.state === 'conflicting') {
     essentialReasons.push('The included removal scope conflicts with the original notes or identified visual evidence. Resolve the included items before pricing.');
     essentialQuestions.push('hidden');
   }
@@ -43,38 +45,30 @@ export function assessInternalEstimate(inputs: JobInputs, analysis: VisionAnalys
     essentialReasons.push('The core analysis indicates more than two loads, beyond the existing percentage-based pricing calculation. Manager scope pricing is required.');
   }
 
-  const drivers: PriceDriver[] = [];
-  const observations = (pattern: RegExp) => analysis.observedFacts.filter((value) => pattern.test(value)
-    && !/\bno (?:heavy|dense|concrete|hidden|additional|disassembly|dismantling|stairs)|nothing (?:hidden|underneath)|not (?:attached|bolted)/i.test(value)
-    && !/\b(?:may|might|possible|potential|unclear|unknown|uncertain)\b/i.test(value)).map((value) => `Model observation (not independently verified): ${safeEvidence(value)}`);
-  for (const [topic, id, flag] of [
-    ['heavy', 'contents', analysis.heavyDebrisRisk], ['hidden', 'hidden', analysis.hiddenDebrisRisk],
-    ['labor', 'dismantling', analysis.difficulty]
-  ] as const) {
-    const current = fact(id); const observed = observations(topics[topic]);
-    const resolved = current.state === 'resolved' || current.state === 'not_applicable';
-    const activeFlag = flag !== 'low' && flag !== 'easy';
-    if (!resolved && !activeFlag && !observed.length && current.source === 'none') continue;
-    const evidence = [
-      ...(current.value ? [`${current.source === 'signed_clarification' ? 'Answer to ' + id : 'Original notes'}: ${safeEvidence(current.value)}`] : []),
-      ...observed,
-      ...(topic === 'labor' ? [`Employee inputs: ${inputs.carryDistance} carry; stairs ${inputs.stairs}.`] : []),
-      ...(activeFlag ? [`Model ${topic} flag: ${flag}. The existing pricing adjustment and firm-quote safeguard are retained.`] : [])
-    ];
-    drivers.push({ topic, state: observed.length || current.state === 'conflicting' ? 'review' : resolved ? 'resolved' : 'unknown',
-      message: observed.length ? 'Specific model-observed evidence needs staff review; answers do not erase it.'
-        : resolved ? `${FACT_LABELS[id]} answered. No specific contradictory visual evidence was supplied.${activeFlag ? ' Review the retained model adjustment; this is not a repeated customer question.' : ''}`
-          : `${FACT_LABELS[id]} remains an assumption.${activeFlag ? ' No specific visual support for the model flag was supplied.' : ''}`,
-      evidence });
-  }
+  const showEvidence = (entries: { source: string; text: string }[]) => entries.map((entry) => `${entry.source.replaceAll('_', ' ')}: ${safeEvidence(entry.text)}`);
+  const drivers: PriceDriver[] = [
+    { topic: 'handling', state: pricingFacts.handling.level === 'unknown' ? 'unknown' : pricingFacts.handling.level === 'conflicting' ? 'review' : 'resolved',
+      message: `Handling: ${pricingFacts.handling.level}. ${pricingFacts.handling.level === 'medium' ? 'One person needs equipment; approved medium adjustment applies.' : pricingFacts.handling.level === 'high' ? 'Two or more people required; approved high adjustment applies.' : 'No automatic heavy adjustment.'}`,
+      evidence: showEvidence(pricingFacts.handling.evidence) },
+    { topic: 'hidden', state: pricingFacts.hidden.state === 'resolved' ? 'resolved' : pricingFacts.hidden.state === 'unknown' ? 'unknown' : 'review',
+      message: `Additional scope: ${pricingFacts.hidden.state}. No uncertainty surcharge. Confirm actual extra scope in the load estimate, not a second fee.`,
+      evidence: showEvidence(pricingFacts.hidden.evidence) },
+    { topic: 'labor', state: pricingFacts.labor.state === 'exceptional_review' ? 'review' : 'resolved',
+      message: pricingFacts.labor.state === 'exceptional_review' ? 'Exceptional work requires staff pricing; no approved task-specific rate. Carry/stairs rules apply once.'
+        : 'Routine carrying, lifting, loading, organizing, nesting and ordinary packing are included. No generic labor surcharge.',
+      evidence: [...showEvidence(pricingFacts.labor.evidence), `Entered access: ${inputs.carryDistance} carry; stairs ${inputs.stairs}.`] },
+    { topic: 'material / disposal', state: pricingFacts.hazards.length || analysis.heavyDebrisRisk !== 'low' ? 'review' : 'unknown',
+      message: 'Material/disposal risk is separate from handling. No automatic hazard charge; retained safety flags require review, not an invented rate.',
+      evidence: [...showEvidence(pricingFacts.hazards), `Model material-risk flag (not handling evidence): ${analysis.heavyDebrisRisk}.`] }
+  ];
   if (topics.dimensions.test(text)) drivers.push({ topic: 'dimensions', state: fact('dimensions').state === 'resolved' ? 'resolved' : 'unknown',
     message: fact('dimensions').state === 'resolved' ? 'Dimensions were provided; no measurement verification is implied.' : 'Dimensions remain unverified; the range uses the core model load estimate, not measured inventory.',
-    evidence: [`Core load estimate: ${analysis.estimatedLoadPercent}% / ${analysis.estimatedLoadCount} load equivalents.`] });
+    evidence: [`Model-estimated load: ${pricingFacts.load.percent}% / ${pricingFacts.load.cubicYards} cubic yards / ${pricingFacts.load.trailerEquivalents} trailer equivalents.`] });
   for (const warning of analysis.warnings.filter((warning) => !Object.values(topics).some((pattern) => pattern.test(warning)) && !/box|bag|container|contents/i.test(warning))) {
     drivers.push({ topic: 'other', state: 'review', message: 'Additional model warning requires staff review.', evidence: [`Model warning: ${safeEvidence(warning)}`] });
   }
-  return { facts, essentialReasons, essentialQuestions, drivers, assumptions: [
-    `Uses the model's ${analysis.estimatedLoadPercent}% loaded-volume estimate and the unchanged WHS pricing rules.`,
+  return { facts, pricingFacts, essentialReasons, essentialQuestions, drivers, assumptions: [
+    ...pricingFacts.packingAssumptions.map(safeEvidence),
     `Access as entered: ${inputs.carryDistance} carry, stairs ${inputs.stairs}; distance tier ${inputs.distanceTier}.`,
     fact('hidden').state === 'resolved' ? 'Removal is limited to the scope confirmed in the original details and clarification.' : 'Provisional range assumes the described/photographed items only; additional scope is not included.',
     'The policy price range is not a statistical prediction interval. Staff review is required before quoting.'

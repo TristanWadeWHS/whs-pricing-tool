@@ -1,5 +1,9 @@
 # Internal provisional estimates: PR 9
 
+Current adjustment policy supersedes the retained generic risk adjustments below:
+[Evidence-based handling and labor](handling-pricing-policy.md). Provisional display,
+signed clarification and firm-quote safeguards remain; the old adjustments are preserved history.
+
 ## Baseline and scope
 
 Starting commit: 02f951636fda97e01230d02007ffe0075cce07a2, branch
