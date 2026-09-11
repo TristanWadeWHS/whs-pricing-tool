@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { HistoricalReference } from './historical-reference';
+import { ShadowDiagnostics } from './shadow-diagnostics';
 import { canDisplayEstimate, failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
 import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from './lib/analysis-confidence';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
@@ -29,8 +30,9 @@ export default function Home() {
   const activeRequest = useRef<AbortController | null>(null);
   const [answers, setAnswers] = useState<Record<string, { answer: string; notSure: boolean }>>({});
   const [clarificationError, setClarificationError] = useState('');
-  const clarifying = result?.status === 'clarification_required' && Boolean(result.clarification);
-  const withheld = clarifying || Boolean(result?.priceWithheld) || (result?.status === 'needs_manager_review' && !canDisplayEstimate(result));
+  const [questionsOpen, setQuestionsOpen] = useState(true);
+  const clarifying = Boolean(result?.clarification);
+  const withheld = Boolean(result?.priceWithheld) || result?.status === 'analysis_failed';
 
   useEffect(() => {
     return () => {
@@ -104,7 +106,8 @@ export default function Home() {
     const id = ++requestId.current;
     setLoading(true);
     setClarificationError('');
-    if (!reassessing) setResult(null);
+    if (!reassessing) { setResult(null); setAnswers({}); }
+    else setResult((previous) => previous ? { ...previous, pricing: null, priceWithheld: true } : null);
     const timer = setTimeout(() => controller.abort(), 65000);
     try {
       const res = await fetch('/api/analyze', {
@@ -122,7 +125,10 @@ export default function Home() {
       if (requestId.current !== id) return;
       if (reassessing && (data.error || data.status === 'analysis_failed')) {
         setClarificationError(data.error || 'Reassessment failed. Your answers are retained; please retry.');
-      } else setResult(data);
+      } else {
+        setResult(data); setAnswers({});
+        setQuestionsOpen(!data.clarification?.optional);
+      }
     } catch {
       if (requestId.current !== id) return;
       if (reassessing) setClarificationError('Reassessment could not finish. Your answers are retained; retry or request manual review.');
@@ -138,7 +144,7 @@ export default function Home() {
     if (activeRequest.current || !originalForm.current || !result?.clarification) return;
     const form = new FormData();
     for (const [key, value] of originalForm.current.entries()) form.append(key, value);
-    form.set('clarification', JSON.stringify({ token: result.clarification.token,
+    form.set('clarification', JSON.stringify({ token: result.clarification.token, history: result.clarification.history,
       answers: result.clarification.questions.map(({ id }) => ({ id,
         notSure: answers[id]?.notSure ?? false, answer: answers[id]?.notSure ? '' : answers[id]?.answer ?? '' })) }));
     await runAnalysis(form, true);
@@ -251,9 +257,31 @@ export default function Home() {
         <button type="button" onClick={cancelAnalysis}>Cancel request</button>
       </div>}
 
-      {clarifying && <section className="clarificationPanel" aria-labelledby="clarification-title">
+      {canDisplayEstimate(result) && <section className="result" aria-label="Internal estimate">
+        <div className="quoteBox">
+          <p>{result.estimateLabel}</p>
+          <h2>{result.pricing.recommendedRange}</h2>
+        </div>
+        <p><b>Review status:</b> {formatStatus(result.status)}</p>
+        {result.loadUnits && <div aria-label="Model-estimated loaded volume">
+          <p><b>Model-estimated loaded volume:</b> {result.loadUnits.percent}% = {result.loadUnits.cubicYards} cubic yards = {result.loadUnits.trailerEquivalents} trailer equivalents ({result.loadUnits.trailerCubicYards}-yard trailer).</p>
+          <p>Whole volume-only hauling trips: {result.loadUnits.volumeOnlyTrips}. Not payload or towing approval.</p>
+        </div>}
+        <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+        <h3>Assumptions</h3>
+        <ul>{result.assumptions?.map((value) => <li key={value}>{value}</li>)}</ul>
+        <h3>Scope and price drivers</h3>
+        {result.priceDrivers?.map((driver, index) => <div key={`${driver.topic}-${index}`}>
+          <p><b>{driver.topic} ({driver.state}):</b> {driver.message}</p>
+          <ul>{driver.evidence.map((value) => <li key={value}>{value}</li>)}</ul>
+        </div>)}
+      </section>}
+
+      {result?.clarification && <section className="clarificationPanel" aria-labelledby="clarification-title">
         <h2 id="clarification-title">A few details will help refine your estimate</h2>
-        <p>Confirm what you can. Choose Not sure for anything you cannot verify.</p>
+        {!questionsOpen && <button type="button" disabled={loading} onClick={() => setQuestionsOpen(true)}>Refine estimate</button>}
+        {questionsOpen && <>
+        <p>Confirm what you can. Unknown answers remain assumptions for staff review.</p>
         <form onSubmit={submitClarification}>
           <fieldset className="jobFields" disabled={loading}>
             {result.clarification.questions.map(({ id, text }) => <div className="clarificationQuestion" key={id}>
@@ -265,11 +293,18 @@ export default function Home() {
                 onChange={(event) => setAnswers((previous) => ({ ...previous, [id]: { answer: previous[id]?.answer ?? '', notSure: event.target.checked } }))} />Not sure</label>
             </div>)}
             <button type="submit" aria-busy={loading}>Reassess estimate</button>
-            <button type="button" className="restartAnalysis" onClick={() => { setResult(null); setClarificationError(''); }}>Edit original details</button>
+            {result.clarification.canSkip && canDisplayEstimate(result) && <button type="button" className="restartAnalysis"
+              onClick={() => setQuestionsOpen(false)}>Not sure / Show provisional estimate</button>}
+            {result.clarification.canSkip && canDisplayEstimate(result) && <p>Skipping keeps the current estimate; unsent answers are not applied.</p>}
           </fieldset>
         </form>
+        </>}
         {clarificationError && <p role="alert">{clarificationError}</p>}
       </section>}
+
+      {result && <button type="button" disabled={loading} className="restartAnalysis" onClick={() => {
+        setResult(null); setAnswers({}); setClarificationError(''); setQuestionsOpen(true); originalForm.current = null;
+      }}>Edit original details</button>}
 
       {withheld && result?.analysisConfidence && <section aria-label="Analysis-confidence score">
         <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysisConfidence.score}/100</p>
@@ -289,14 +324,10 @@ export default function Home() {
         </section>
       )}
 
+      {result?.diagnostics && <details><summary>Technical shadow diagnostics</summary><ShadowDiagnostics result={result.diagnostics} /></details>}
+
       {canDisplayEstimate(result) && (
         <section className="card result">
-          <div className="quoteBox">
-            <p>{result.status === 'direct_quote_eligible' ? 'Suggested Quote' : 'Internal Estimate'}</p>
-            <h2>${result.pricing.suggestedQuote}</h2>
-            <span>{result.pricing.recommendedRange}</span>
-          </div>
-
           <HistoricalReference stairs={result.inputs?.stairs} projectedLoads={result.analysis.estimatedLoadCount} />
 
           <div className="summaryBox">
@@ -306,23 +337,16 @@ export default function Home() {
             <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
             <p><b>Direct-quote workflow threshold:</b> {result.confidenceThreshold}/100</p>
             <p><b>Photo angle quality:</b> {result.analysis.photoAngleQuality}</p>
-            <p><b>Potential hidden debris risk:</b> {result.analysis.hiddenDebrisRisk}</p>
             {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
           </div>
 
-          <div className="competitorBox">
-            <h3>Competitor Pricing Summary</h3>
-            <p>{result.pricing.competitorSummary}</p>
-          </div>
-
+          <details><summary>Core analysis and pricing calculation</summary>
           <div className="grid resultGrid">
             <div>
               <h3>AI Photo Estimate</h3>
-              <p><b>Load:</b> {result.analysis.estimatedLoadRange} ({result.analysis.estimatedLoadPercent}%)</p>
-              <p><b>Estimated loads:</b> {result.analysis.estimatedLoadCount}</p>
               <p><b>Material:</b> {result.analysis.materialType}</p>
-              <p><b>Difficulty:</b> {result.analysis.difficulty}</p>
-              <p><b>Heavy risk:</b> {result.analysis.heavyDebrisRisk}</p>
+              <p><b>Model labor flag (not a surcharge):</b> {result.analysis.difficulty}</p>
+              <p><b>Model material/disposal risk (not handling):</b> {result.analysis.heavyDebrisRisk}</p>
             </div>
 
             <div>
@@ -340,18 +364,11 @@ export default function Home() {
           <h3>Observed Facts</h3>
           <ul>{result.analysis.observedFacts?.map((x: string) => <li key={x}>{x}</li>)}</ul>
 
-          <h3>Assumptions and Uncertainty</h3>
-          <ul>{result.analysis.assumptions?.map((x: string) => <li key={x}>{x}</li>)}</ul>
-          <ul>{result.analysis.uncertaintyNotes?.map((x: string) => <li key={x}>{x}</li>)}</ul>
-
-          <h3>Warnings</h3>
-          <ul>{result.analysis.warnings?.map((x: string) => <li key={x}>{x}</li>)}</ul>
-
-          <h3>Questions to Ask Client</h3>
-          <ul>{result.analysis.questionsToAsk?.map((x: string) => <li key={x}>{x}</li>)}</ul>
-
-          <h3>{result.status === 'direct_quote_eligible' ? 'Copy/Paste Customer Message' : 'Review Message'}</h3>
-          <textarea readOnly value={result.pricing.customerMessage} />
+          </details>
+          {result.firmQuoteEligible && result.pricing.customerMessage && <>
+            <h3>Internal customer-quote draft</h3>
+            <textarea readOnly value={result.pricing.customerMessage} />
+          </>}
         </section>
       )}
     </main>

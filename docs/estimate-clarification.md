@@ -1,5 +1,8 @@
 # Low-confidence clarification workflow
 
+Historical PR 8 policy below. The current PR 9 internal-only workflow supersedes
+score-based price withholding; see [Internal provisional estimates](internal-provisional-estimates.md).
+
 Branch: codex/estimate-clarification, stacked on PR #7 / codex/internal-historical-reference
 (which remains stacked on PR #6). Starting commit:
 215551d16f47864d34df8019841526e67393ba60.

@@ -76,7 +76,10 @@ button:disabled { opacity: .65; }
   text-align: center;
 }
 .quoteBox p { margin: 0; color: var(--muted); font-weight: 800; }
-.quoteBox h2 { font-size: 58px; margin: 4px 0; }
+.quoteBox h2 { font-size: 32px; margin: 8px 0; overflow-wrap: anywhere; }
+.result { padding: 24px 0; overflow-wrap: anywhere; }
+details { margin: 18px 0; }
+summary { cursor: pointer; font-weight: 700; padding: 12px 0; }
 .resultGrid { margin-top: 18px; }
 .error { color: #a10000; border-color: #f0b5b5; background: #fff4f4; }
 ul { padding-left: 20px; }
