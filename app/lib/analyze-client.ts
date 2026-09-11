@@ -1,7 +1,8 @@
 import { IMAGE_TOO_LARGE_MESSAGE } from './estimate-limits';
 
 export type Result = {
-  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
+  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible' | 'clarification_required';
+  clarification?: { token: string; questions: Array<{ id: string; text: string }> };
   statusReasons?: string[];
   confidenceThreshold?: number;
   analysis: any;

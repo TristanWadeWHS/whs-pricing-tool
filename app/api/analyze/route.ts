@@ -4,6 +4,7 @@ import { priceJob } from '../../lib/pricing';
 import { validateEstimateForm } from '../../lib/request-validation';
 import { AnalysisError, analyzeJobPhotosWithOpenAI } from '../../lib/openai-analysis';
 import { buildCustomerMessage, determineQuoteStatus } from '../../lib/quote-status';
+import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, needsClarification, verifyClarification } from '../../lib/clarification';
 
 export const runtime = 'nodejs';
 
@@ -31,6 +32,15 @@ export async function POST(req: NextRequest) {
     }
 
     const { inputs, photos } = validation.value;
+    let answers: ReturnType<typeof verifyClarification>;
+    try {
+      if (form.getAll('clarification').length > 1) throw new Error('Duplicate clarification.');
+      answers = verifyClarification(form.get('clarification'), validation.value);
+    } catch {
+      return NextResponse.json({ status: 'analysis_failed', analysis: null, pricing: null,
+        error: 'Clarification is invalid, expired, or does not match the original job. Restart analysis to continue.',
+        errorCode: 'invalid_clarification' }, { status: 400 });
+    }
     const decodedImageBytes = photos.reduce((total, photo) => total + photo.bytes.byteLength, 0);
     console.info('[analyze] request validation passed', {
       requestId,
@@ -51,14 +61,27 @@ export async function POST(req: NextRequest) {
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     console.info('[analyze] OpenAI analysis started', { requestId });
-    const analysis = await analyzeJobPhotosWithOpenAI(client, inputs, imageParts);
+    const analysis = await analyzeJobPhotosWithOpenAI(client, inputs, imageParts, { clarifications: answers ?? undefined });
     console.info('[analyze] OpenAI analysis completed', {
       requestId,
       confidencePercent: analysis.confidencePercent,
       estimatedLoadPercent: analysis.estimatedLoadPercent
     });
 
+    if (!answers && needsClarification(analysis)) {
+      const questions = clarificationQuestions(analysis, inputs.notes);
+      return NextResponse.json({ status: questions.length ? 'clarification_required' : 'needs_manager_review',
+        analysis: null, pricing: null, inputs: null,
+        statusReasons: questions.length ? ['Scope clarification is required before pricing.'] : ['Uncertainty cannot be resolved by the supported questions. Manager review is required before quoting.'],
+        clarification: questions.length ? { questions, token: issueClarification(validation.value, questions) } : null
+      }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     const quoteStatus = determineQuoteStatus(inputs, analysis);
+    if (answers && (needsClarification(analysis) || hasUnresolvedAnswers(answers))) {
+      quoteStatus.status = 'needs_manager_review';
+      quoteStatus.reasons = [...quoteStatus.reasons.filter((reason) => !reason.startsWith('Meets provisional')),
+        'Provisional internal estimate only: clarification remains uncertain or confidence is below 85%. Manager review is required.'];
+    }
     const pricing = priceJob(inputs, analysis);
     const customerMessage = buildCustomerMessage(pricing, quoteStatus.status);
 
