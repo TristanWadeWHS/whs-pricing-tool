@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { HistoricalReference } from './historical-reference';
-import { failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
+import { canDisplayEstimate, failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
+import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from './lib/analysis-confidence';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
 import {
   buildAnalyzeFormWithOptimizedPhotos,
@@ -23,14 +24,24 @@ export default function Home() {
   const [fileCount, setFileCount] = useState(0);
   const [photoState, setPhotoState] = useState<PhotoState>({ status: 'idle', message: '', photos: [] });
   const selectionId = useRef(0);
+  const originalForm = useRef<FormData | null>(null);
+  const requestId = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+  const [answers, setAnswers] = useState<Record<string, { answer: string; notSure: boolean }>>({});
+  const [clarificationError, setClarificationError] = useState('');
+  const clarifying = result?.status === 'clarification_required' && Boolean(result.clarification);
+  const withheld = clarifying || Boolean(result?.priceWithheld) || (result?.status === 'needs_manager_review' && !canDisplayEstimate(result));
 
   useEffect(() => {
     return () => {
       selectionId.current += 1;
+      requestId.current += 1;
+      activeRequest.current?.abort();
     };
   }, []);
 
   async function handlePhotoChange(files: FileList | null) {
+    cancelAnalysis();
     const selectedFiles = Array.from(files || []);
     const currentSelectionId = selectionId.current + 1;
     selectionId.current = currentSelectionId;
@@ -57,6 +68,7 @@ export default function Home() {
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (activeRequest.current || clarifying) return;
 
     if (photoState.status === 'optimizing') {
       setResult(failedResult('Please wait until photos finish optimizing.', 'photos_optimizing'));
@@ -80,29 +92,62 @@ export default function Home() {
       return;
     }
 
+    const formData = buildAnalyzeFormWithOptimizedPhotos(new FormData(e.currentTarget), processedFiles);
+    originalForm.current = formData;
+    await runAnalysis(formData, false);
+  }
+
+  async function runAnalysis(formData: FormData, reassessing: boolean) {
+    if (activeRequest.current) return;
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const id = ++requestId.current;
     setLoading(true);
-    setResult(null);
-
+    setClarificationError('');
+    if (!reassessing) setResult(null);
+    const timer = setTimeout(() => controller.abort(), 65000);
     try {
-      const formData = buildAnalyzeFormWithOptimizedPhotos(new FormData(e.currentTarget), processedFiles);
-
       const res = await fetch('/api/analyze', {
         method: 'POST',
         body: formData,
         cache: 'no-store',
         credentials: 'include',
+        signal: controller.signal,
         headers: {
           accept: 'application/json'
         }
       });
 
       const data = await readAnalyzeResponse(res);
-      setResult(data);
+      if (requestId.current !== id) return;
+      if (reassessing && (data.error || data.status === 'analysis_failed')) {
+        setClarificationError(data.error || 'Reassessment failed. Your answers are retained; please retry.');
+      } else setResult(data);
     } catch {
-      setResult(failedResult('The estimate request could not be completed. Manual review is required.', 'network_error'));
+      if (requestId.current !== id) return;
+      if (reassessing) setClarificationError('Reassessment could not finish. Your answers are retained; retry or request manual review.');
+      else setResult(failedResult('The estimate request could not be completed. Manual review is required.', 'network_error'));
     } finally {
-      setLoading(false);
+      clearTimeout(timer);
+      if (requestId.current === id) { activeRequest.current = null; setLoading(false); }
     }
+  }
+
+  async function submitClarification(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (activeRequest.current || !originalForm.current || !result?.clarification) return;
+    const form = new FormData();
+    for (const [key, value] of originalForm.current.entries()) form.append(key, value);
+    form.set('clarification', JSON.stringify({ token: result.clarification.token,
+      answers: result.clarification.questions.map(({ id }) => ({ id,
+        notSure: answers[id]?.notSure ?? false, answer: answers[id]?.notSure ? '' : answers[id]?.answer ?? '' })) }));
+    await runAnalysis(form, true);
+  }
+
+  function cancelAnalysis() {
+    requestId.current += 1;
+    activeRequest.current?.abort(); activeRequest.current = null;
+    setLoading(false);
   }
 
   return (
@@ -117,6 +162,7 @@ export default function Home() {
       </section>
 
       <form className="card form" onSubmit={submit}>
+        <fieldset className="jobFields" disabled={loading || clarifying}>
         <label>
           Job photos, 1-5 images
           <input
@@ -145,9 +191,9 @@ export default function Home() {
           <label>
             Distance tier
             <select name="distanceTier" defaultValue="under25">
-              <option value="under25">Within 25 miles - $130 minimum</option>
-              <option value="25to40">25-40 miles - $145 minimum</option>
-              <option value="40to65">40-65 miles - $175 minimum</option>
+              <option value="under25">{withheld ? 'Within 25 miles' : 'Within 25 miles - $130 minimum'}</option>
+              <option value="25to40">{withheld ? '25-40 miles' : '25-40 miles - $145 minimum'}</option>
+              <option value="40to65">{withheld ? '40-65 miles' : '40-65 miles - $175 minimum'}</option>
             </select>
           </label>
 
@@ -197,7 +243,43 @@ export default function Home() {
         <button disabled={loading || photoState.status === 'optimizing' || photoState.status === 'error'} aria-busy={loading || photoState.status === 'optimizing'}>
           {photoState.status === 'optimizing' ? OPTIMIZATION_MESSAGES.optimizing : loading ? 'Analyzing...' : 'Analyze Job'}
         </button>
+        </fieldset>
       </form>
+
+      {loading && <div className="analysisBusy" role="status" aria-live="polite">
+        <p>{clarifying ? 'Reassessing your job...' : 'Analyzing your job...'}</p>
+        <button type="button" onClick={cancelAnalysis}>Cancel request</button>
+      </div>}
+
+      {clarifying && <section className="clarificationPanel" aria-labelledby="clarification-title">
+        <h2 id="clarification-title">A few details will help refine your estimate</h2>
+        <p>Confirm what you can. Choose Not sure for anything you cannot verify.</p>
+        <form onSubmit={submitClarification}>
+          <fieldset className="jobFields" disabled={loading}>
+            {result.clarification.questions.map(({ id, text }) => <div className="clarificationQuestion" key={id}>
+              <label htmlFor={`answer-${id}`}>{text}</label>
+              <textarea id={`answer-${id}`} maxLength={400} required={!answers[id]?.notSure}
+                disabled={answers[id]?.notSure} value={answers[id]?.answer ?? ''}
+                onChange={(event) => setAnswers((previous) => ({ ...previous, [id]: { answer: event.target.value, notSure: previous[id]?.notSure ?? false } }))} />
+              <label className="notSure"><input type="checkbox" checked={answers[id]?.notSure ?? false}
+                onChange={(event) => setAnswers((previous) => ({ ...previous, [id]: { answer: previous[id]?.answer ?? '', notSure: event.target.checked } }))} />Not sure</label>
+            </div>)}
+            <button type="submit" aria-busy={loading}>Reassess estimate</button>
+            <button type="button" className="restartAnalysis" onClick={() => { setResult(null); setClarificationError(''); }}>Edit original details</button>
+          </fieldset>
+        </form>
+        {clarificationError && <p role="alert">{clarificationError}</p>}
+      </section>}
+
+      {withheld && result?.analysisConfidence && <section aria-label="Analysis-confidence score">
+        <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysisConfidence.score}/100</p>
+        <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
+      </section>}
+
+      {result?.status === 'needs_manager_review' && !canDisplayEstimate(result) && <section className="clarificationPanel" role="status">
+        <h2>Manager review required</h2>
+        <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+      </section>}
 
       {result?.error && (
         <section className="card error">
@@ -207,7 +289,7 @@ export default function Home() {
         </section>
       )}
 
-      {result?.analysis && result?.pricing && (
+      {canDisplayEstimate(result) && (
         <section className="card result">
           <div className="quoteBox">
             <p>{result.status === 'direct_quote_eligible' ? 'Suggested Quote' : 'Internal Estimate'}</p>
@@ -220,8 +302,9 @@ export default function Home() {
           <div className="summaryBox">
             <h3>Estimate Quality</h3>
             <p><b>Status:</b> {formatStatus(result.status)}</p>
-            <p><b>Confidence:</b> {result.analysis.confidencePercent}%</p>
-            <p><b>Direct-quote threshold:</b> {result.confidenceThreshold}% provisional</p>
+            <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysis.confidencePercent}/100</p>
+            <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
+            <p><b>Direct-quote workflow threshold:</b> {result.confidenceThreshold}/100</p>
             <p><b>Photo angle quality:</b> {result.analysis.photoAngleQuality}</p>
             <p><b>Potential hidden debris risk:</b> {result.analysis.hiddenDebrisRisk}</p>
             {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}

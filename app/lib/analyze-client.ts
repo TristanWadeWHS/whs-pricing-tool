@@ -1,7 +1,10 @@
 import { IMAGE_TOO_LARGE_MESSAGE } from './estimate-limits';
 
 export type Result = {
-  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
+  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible' | 'clarification_required';
+  clarification?: { token: string; questions: Array<{ id: string; text: string }> };
+  priceWithheld?: boolean;
+  analysisConfidence?: { score: number; scale: '1-100'; source: 'model_reported'; calibrated: false };
   statusReasons?: string[];
   confidenceThreshold?: number;
   analysis: any;
@@ -10,6 +13,13 @@ export type Result = {
   error?: string;
   errorCode?: string;
 };
+
+export function canDisplayEstimate(result: Result | null) {
+  const score = result?.analysis?.confidencePercent;
+  return Boolean(result?.analysis && result?.pricing && !result.priceWithheld && result.status !== 'clarification_required'
+    && typeof score === 'number' && Number.isFinite(score) && score >= 85 && score <= 100
+    && (!result.analysisConfidence || result.analysisConfidence.score >= 85));
+}
 
 export function failedResult(error: string, errorCode: string): Result {
   return {
