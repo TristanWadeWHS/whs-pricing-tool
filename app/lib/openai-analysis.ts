@@ -1,9 +1,7 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { JobInputs } from './pricing';
-import { VisionAnalysis, visionAnalysisSchema, previewAnalysisSchema } from './analysis-schema';
-import { shadowPreviewEnabled } from './shadow-schema';
-import { validatedShadowEvidence } from './shadow-volume';
+import { VisionAnalysis, visionAnalysisSchema } from './analysis-schema';
 import { QUESTION_TEXT, type ClarificationAnswer } from './clarification';
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6';
@@ -42,13 +40,13 @@ export async function analyzeJobPhotosWithOpenAI(
           content: [
             { type: 'input_text', text: buildAnalysisPrompt(inputs) },
             ...(options.clarifications ? [{ type: 'input_text' as const, text: buildClarificationPrompt(options.clarifications) }] : []),
-            ...(shadowPreviewEnabled() ? [{ type: 'input_text' as const, text: buildShadowPrompt(imageParts.length) }] : []),
             ...imageParts
           ]
         }
       ],
       text: {
-        format: zodTextFormat(shadowPreviewEnabled() ? previewAnalysisSchema : visionAnalysisSchema, 'whs_job_photo_analysis')
+        // Optional inventory must not share the core request's schema or deadline.
+        format: zodTextFormat(visionAnalysisSchema, 'whs_job_photo_analysis')
       }
     }),
     timeoutMs
@@ -59,12 +57,11 @@ export async function analyzeJobPhotosWithOpenAI(
     throw new AnalysisError('Model did not return a parsed structured analysis.', 'missing_structured_output');
   }
 
-  if (!shadowPreviewEnabled()) { visionAnalysisSchema.parse(parsed); return parsed; }
-  const { shadow, ...core } = parsed as VisionAnalysis;
-  visionAnalysisSchema.parse(core);
-  return { ...core, shadow: validatedShadowEvidence(shadow) };
+  visionAnalysisSchema.parse(parsed);
+  return parsed;
 }
 
+// Preserved for a separately bounded extraction path; deliberately not called by Analyze Job.
 export function buildShadowPrompt(photoCount: number) {
   return `Additional INTERNAL SHADOW evidence only; never use shadow calculations to set confidence, load estimates or price. There are ${photoCount} photos numbered 1..${photoCount} in supplied order.
 Return shadow=null when evidence is unavailable. Build a single cross-photo inventory: the same physical item/group must retain one ID across views and list all photoRefs. Do not invent extra instances. Mark uncertain overlap as uncertain. Give each constituent its containing pile/group parentId; never model the same contents as separate root groups. Quantity is the count represented by one dimension envelope (a whole pile normally has quantity 1). Attribute quantityEvidence to the photo estimate or an exact employee count excerpt; unknown count is null.

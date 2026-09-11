@@ -1,5 +1,55 @@
 # Internal Preview: reconciled facts and shadow volume
 
+## Recovery checkpoint: inventory extraction deferred
+
+The first PR 9 Preview at b2712d71c8b8c0a54b6e8c5889f65a22f0fe24bd failed a
+live POST /api/analyze at 2026-09-11 08:02:30 UTC. Sanitized runtime evidence:
+request 00ab7356-d1f1-4a32-9e26-dc1ecd7c9525 passed upload validation, started
+OpenAI analysis, then returned 502 with errorCode=timeout and durationMs=45036.
+This confirms the application's 45-second deadline, NOT a provider/schema
+rejection or core Zod validation error. Provider processing/retry details were
+not logged, so the underlying latency cause cannot be established from this log.
+
+PR 9 put optional inventory generation and its strict SDK parsing inside the
+same timed call as core analysis. The safeShadowDiagnostics catch runs only AFTER
+that call succeeds, so it could not isolate generation latency or SDK failures.
+The earlier mocked malformed-shadow test bypassed SDK parsing and did not prove
+end-to-end provider isolation.
+
+Minimal recovery: Analyze Job now always uses PR 8's core-only schema and prompt
+path, including existing clarification instructions. The extra extraction prompt
+is not sent. Strict core validation, model selection, timeout, price rules and
+below-85 withholding are unchanged. Inventory schemas, prompt builder, calculation,
+tests and UI remain preserved but live volume extraction is explicitly deferred.
+Readiness still reports available facts; missing inventory contributes unknowns,
+never fabricated measurements or prices. No separate model request or paid retry
+was introduced. The original feature description below is historical where it
+describes live extraction; it is not the current request path.
+
+Recovery checks: 52 affected tests passed, including actual installed OpenAI SDK
+serialization/parsing against a synthetic local transport, strict rejection of
+invalid core output, absent shadow schema/instructions in Preview, clarification
+gates, reconciliation, volume and failure isolation. Typecheck passed.
+No live OpenAI request was made: local OPENAI_API_KEY is unavailable, there is no
+local credential-bearing env file, and no existing authenticated browser tab was
+available. No secrets were pulled or exposed. Provider recovery is therefore NOT
+verified by these local tests or by a successful Preview build.
+
+Preserved before this fix: annotated tag
+preview-before-inventory-timeout-fix-b2712d7; deployment
+dpl_AtxcF5hUvJ3Xw8iyUEe7JRTXKrtV,
+https://whs-pricing-tool-p8kg-htxsyvvrw-wade-home-services.vercel.app.
+PR remains draft and stacked on PR 8. No Production/Sheet changes.
+
+Manual recovery test: authenticate to the new Preview linked in PR 9 and submit
+one small synthetic/non-customer image (at least 1280 pixels on its long edge to
+satisfy the existing optimizer), with simple synthetic job details. Expect a valid
+core result or the existing unpriced clarification/review state, not a fabricated
+fallback. Diagnostics must say live inventory extraction is deferred. Below 85,
+all prices must remain withheld. If analysis still fails, retain the approximate
+UTC time and displayed error code for one correlated runtime-log inspection;
+do not repeatedly retry. Never send credentials or customer photos for diagnosis.
+
 ## Baseline and dependency
 
 Starting branch codex/estimate-clarification, commit

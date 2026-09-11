@@ -10,6 +10,7 @@ export function buildShadowDiagnostics(inputs: JobInputs, analysis: VisionAnalys
   const facts = reconcileClarificationFacts(inputs.notes, answers, inventory?.contradictions, photoCount);
   const employeeText = [inputs.notes, ...answers.filter((answer) => !answer.notSure && !unknownAnswer(answer.answer)).map((answer) => answer.answer)].join('\n');
   const volume = calculateShadowVolume(inventory, photoCount, employeeText);
+  if (analysis.shadow === undefined) volume.reasons = ['Live inventory extraction is deferred to protect core analysis. No shadow volume is available.'];
   return { status: 'available' as const,
     // Never return free text from notes, answers or model observations in diagnostics.
     facts: facts.map(({ value: _value, ...fact }) => fact),

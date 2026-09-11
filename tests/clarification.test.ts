@@ -5,7 +5,6 @@ import { validateEstimateForm } from '../app/lib/request-validation';
 import { priceJob } from '../app/lib/pricing';
 import { canDisplayEstimate } from '../app/lib/analyze-client';
 import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from '../app/lib/analysis-confidence';
-import { dimensionNote, inventory } from './shadow-inventory-fixtures';
 const parseMock = vi.hoisted(() => vi.fn());
 vi.mock('openai', () => ({ default: vi.fn(function () { return { responses: { parse: parseMock } }; }) }));
 import { POST } from '../app/api/analyze/route';
@@ -25,21 +24,20 @@ function answerForm(token: string, notSure = false) {
 }
 
 describe('server-enforced clarification', () => {
-  it('isolates malformed shadow evidence from existing pricing and strips raw evidence', async () => {
+  it('defers optional extraction while retaining valid core pricing in Preview', async () => {
     vi.stubEnv('VERCEL_ENV', 'preview');
-    parseMock.mockResolvedValueOnce({ output_parsed: { ...sampleAnalysis(), shadow: { items: 'invalid' } } });
+    parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis() });
     const first = (await post()).body;
     expect(first.status).toBe('direct_quote_eligible'); expect(first.pricing.suggestedQuote).toBe(230);
     expect(first.diagnostics.volume.status).toBe('unavailable'); expect(first.analysis.shadow).toBeUndefined();
-    parseMock.mockResolvedValueOnce({ output_parsed: { ...sampleAnalysis(), shadow: inventory() } });
-    const second = (await post(makeForm({ notes: dimensionNote }))).body;
-    expect(second.pricing).toEqual(first.pricing);
-    expect(second.diagnostics.volume.cubicYards.min).toBeCloseTo(2);
-    expect(JSON.stringify(second.diagnostics)).not.toContain(dimensionNote);
+    expect(first.diagnostics.volume.reasons.join(' ')).toContain('extraction is deferred');
+    const request = parseMock.mock.lastCall![0];
+    expect(request.text.format.schema.properties.shadow).toBeUndefined();
+    expect(JSON.stringify(request.input)).not.toContain('INTERNAL SHADOW');
   });
   it('keeps diagnostics price-free below the gate and omits them outside Preview/development', async () => {
     vi.stubEnv('VERCEL_ENV', 'preview');
-    parseMock.mockResolvedValueOnce({ output_parsed: { ...low(), shadow: inventory() } });
+    parseMock.mockResolvedValueOnce({ output_parsed: low() });
     const body = (await post()).body;
     expect(body.priceWithheld).toBe(true); expect(body.pricing).toBeNull();
     expect(body.diagnostics).toBeDefined();
