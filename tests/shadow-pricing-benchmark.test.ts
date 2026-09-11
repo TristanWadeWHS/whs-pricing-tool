@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   SHADOW_PRICING_FEATURE_ALLOWLIST,
   SHADOW_PRICING_LEAKAGE_EXCLUSIONS,
-  buildShadowPricingRecords,
+  buildShadowPricingRecords as buildRecords,
   classifyShadowPricingTier,
   createTimeAwareFolds,
-  runShadowPricingBenchmark,
+  runShadowPricingBenchmark as runBenchmark,
   aggregatePredictions,
   buildNumericStats,
   fitTierPredictor,
@@ -13,6 +13,10 @@ import {
   parseDate,
   type ShadowPricingRawRecord
 } from '../app/lib/shadow-pricing-benchmark';
+
+// These synthetic quote-time fixtures explicitly satisfy the provenance contract.
+const buildShadowPricingRecords = (rows: ShadowPricingRawRecord[]) => buildRecords(rows, 'verified_pre_quote');
+const runShadowPricingBenchmark = (rows: ShadowPricingRawRecord[], commit = 'synthetic') => runBenchmark(rows, commit, 'verified_pre_quote');
 
 function row(overrides: Partial<ShadowPricingRawRecord> = {}): ShadowPricingRawRecord {
   return {
@@ -123,10 +127,10 @@ describe('shadow pricing benchmark', () => {
     expect(legacyOnly.evaluation?.metrics.every((metric) => metric.mae === null)).toBe(true);
   });
 
-  it('uses only documented lowercase workers alias when planned_workers is absent', () => {
+  it('never substitutes actual workers for missing or blank planned workers', () => {
     const source = row({ workers: '2' });
     delete source.planned_workers;
-    expect(buildShadowPricingRecords([source]).records[0].features.plannedWorkers).toBe(2);
+    expect(buildShadowPricingRecords([source]).records[0].features.plannedWorkers).toBeNull();
     expect(buildShadowPricingRecords([row({ planned_workers: '', workers: '2', Workers: '9' })]).records[0].features.plannedWorkers).toBeNull();
   });
 

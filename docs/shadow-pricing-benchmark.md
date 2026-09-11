@@ -1,4 +1,4 @@
-# Shadow Pricing Benchmark: Methodology V2
+# Shadow Pricing Benchmark: Confirmed Historical Mappings
 
 Offline CLI only. No estimator integration or Production behavior changes.
 Starting commit: c272da080e0009b90a847f757839bb4001ffe3af.
@@ -7,22 +7,59 @@ Rollback: pricing-tool-schema-v2-stable-2026-09-05 and retained deployment histo
 
 ## Provenance
 
-Require explicit canonical estimate_date and positive final_completed_price.
-Dates accept YYYY-MM-DD or M/D/YYYY. Price is target-only.
-Legacy Date, Amount, Workers and other aliases are not evidence of provenance.
-Missing or blank canonical fields never fall back to these aliases.
+Tristan confirmed the following meanings on 2026-09-10. These supersede the
+generic Date/Workers mappings in earlier audit/schema documentation for this
+benchmark only. The Sheet and those historical migration records are unchanged.
+
+| Source | Adapter canonical field | Meaning / boundary |
+| --- | --- | --- |
+| Date | completion_date | Job completion date, never estimate date |
+| Amount | revenue | Outcome; treatment of tips/taxes remains unknown |
+| Net Profit | profit | Outcome; cost accounting definition remains unknown |
+| Estimated Loads / Estimated_Loads | projected_loads | Projected loads recorded before job; pre-quote timing unconfirmed |
+| Workers / workers | actual_workers | Actual crew used, never planned crew |
+| Stairs | stairs | Binary characteristic; pre-quote timing unconfirmed |
+| Carry distance / Carry Distance / Carry_Distance / carry_distance | carry_distance_ordinal | Lower means less walking; units, range and tier thresholds unknown |
+| Heavy Items / Heavy_Items | heavy_items | Binary characteristic; pre-quote timing unconfirmed |
+| Demolition | demo_required | Binary requirement; pre-quote timing unconfirmed |
+
+Canonical adapter fields take precedence by header presence, including blanks.
+Dates accept YYYY-MM-DD or M/D/YYYY. Binary formats accept yes/no, true/false,
+y/n or 1/0 (case-insensitive); other encodings are invalid, not guessed. Missing
+values remain null. Ordinal carry accepts finite numeric levels without assumed
+endpoints, units, equal spacing or conversion to short/long or feet/meters.
+Actual workers must be a nonnegative integer; projected loads nonnegative.
+Revenue/profit can be signed historical outcomes and never enter predictors.
+Revenue is not automatically relabeled as final_completed_price.
+
+The adapter distinguishes absent headers, blank cells, invalid encodings and
+valid encodings for each field. formatValidHistoricalRows means all nine mapped
+field formats are valid, not that incomplete rows are worthless or economically
+verified. Historical validity does not establish quote-time eligibility.
+Aggregate output contains no mapped row values or identifying details.
+
+The benchmark still requires an actual estimate_date, a positive explicitly
+defined final_completed_price target and verified pre-quote predictor provenance.
+Default provenance is unknown, even for canonical-looking field names. The CLI
+cannot enable verification through Sheet cells or an environment toggle. An
+explicit library argument is used only for independently verified inputs
+(currently synthetic tests); it must never be inferred from before-job timing.
 No historical data is backfilled, relabeled, or guessed.
 
 Predictors: estimate month/year, service_type, city, distance_tier,
 estimated_load_count, planned_workers, stairs, carry_distance, heavy_items,
-demo_required. Only lowercase workers is an alternate for absent planned_workers:
-Schema V2 explicitly defines it as planned workers. A blank planned_workers wins.
-Canonical names still require truthful data entry and human provenance validation.
+demo_required. planned_workers has no actual-worker fallback. Missing planned
+crew remains missing and cannot be invented to complete a tier. Historical
+ordinal carry cannot satisfy a categorical quote-time tier threshold without
+an independently confirmed scale mapping.
 
-Actual loads/labor/costs, outcomes, accepted prices, overrides, notes, identifiers,
+Actual workers, completion dates, revenue, profit, actual loads/labor/costs,
+outcomes, accepted prices, overrides, notes, identifiers,
 addresses, contact information and photos are excluded from predictors.
 Date/target failures exclude a row. Aggregate field-blocker counts can overlap.
 Target-valid rows with unknown tier inputs remain eligible for diagnostics only.
+Unknown quote-time provenance excludes records from predictive folds separately
+from format failures and insufficient tier inputs; blocker counts can overlap.
 
 ## Tiers And Missingness
 
@@ -90,6 +127,19 @@ is explicitly labeled. It does not authenticate individual source records.
 ## Decision
 
 NO_MODEL_READY remains the only automatic decision in this phase.
+Supported descriptive work, once separately authorized to use data: completion
+counts by date, reported revenue/profit summaries with accounting caveats,
+actual-crew distributions, projected-load and job-characteristic distributions.
+Ordinal carry supports ordered summaries, not physical distances or assumed
+equal-spaced effects. These summaries cannot demonstrate pre-quote predictive
+performance, optimal pricing or economic underpricing. This correction runs no
+live analysis and generates no new metrics or rankings.
+
+Outstanding confirmations: were projected loads and each characteristic recorded
+before the customer received the quote, and were original values preserved?
+Is a true quote/estimate date available? Is planned crew recorded separately?
+What are carry's allowed levels and meanings? Which binary encodings occur?
+Does revenue include tips/taxes/refunds, and what costs define reported profit?
 Earlier metrics/rankings are superseded and invalid methodology evidence.
 Collect more validated completed outcomes, verify estimate-time provenance,
 improve segmentation and assess sufficient independent time-aware holdouts.

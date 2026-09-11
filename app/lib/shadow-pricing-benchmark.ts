@@ -1,4 +1,8 @@
 import { google } from 'googleapis';
+import { createRequire } from 'node:module';
+import type { HistoricalDiagnostics, QuoteTimeProvenance } from './shadow-historical-adapter';
+
+const { historicalDiagnostics } = createRequire(import.meta.url)('./shadow-historical-adapter.ts') as typeof import('./shadow-historical-adapter');
 
 export const SHADOW_BENCHMARK_SHEET_GID = 969595299;
 export const SHADOW_BENCHMARK_READONLY_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
@@ -6,7 +10,7 @@ export const SHADOW_BENCHMARK_READONLY_SCOPE = 'https://www.googleapis.com/auth/
 const EXPECTED_SPREADSHEET_ID = '1VKZgdAwWURAkACKSUrEGSoNib1xQaQ7zzpBGfwneOeI';
 const EXPECTED_TAB_NAME = 'ML Data';
 
-const FEATURE_DEFINITION_VERSION = 'shadow-pricing-v2';
+const FEATURE_DEFINITION_VERSION = 'shadow-pricing-v3-provenance';
 const TARGET_DEFINITION_VERSION = 'canonical-final-completed-price-v2';
 export const TIERS = ['small_routine', 'mid_tier', 'large_project', 'special_risk_manual_review', 'unknown_inputs'] as const;
 export const MIN_TIER_TRAIN = 8;
@@ -66,6 +70,7 @@ export type ShadowBenchmarkResult = {
     eligibleRows: number;
     excludedRows: number;
     fieldBlockers: Record<string, number>;
+    historical: HistoricalDiagnostics;
     dateCoverage: { earliest: string | null; latest: string | null };
     tierDistribution: Record<ShadowPricingTier, number>;
     featureAllowlist: string[];
@@ -146,6 +151,10 @@ export const SHADOW_PRICING_FEATURE_ALLOWLIST = [
 ];
 
 export const SHADOW_PRICING_LEAKAGE_EXCLUSIONS = [
+  'completion_date',
+  'actual_workers',
+  'revenue',
+  'profit',
   'actual_load_count',
   'actual_labor_hours',
   'actual_disposal_cost',
@@ -226,13 +235,6 @@ function normalizeCategory(value: string | undefined, fallback = 'unknown') {
   return normalized || fallback;
 }
 
-function valueFor(row: ShadowPricingRawRecord, names: string[]) {
-  for (const name of names) {
-    if (row[name] !== undefined) return row[name];
-  }
-  return '';
-}
-
 export function classifyShadowPricingTier(features: ShadowPricingFeatures): ShadowPricingTier {
   const loadCount = features.estimatedLoadCount;
   const workers = features.plannedWorkers;
@@ -252,14 +254,14 @@ export function classifyShadowPricingTier(features: ShadowPricingFeatures): Shad
   return 'small_routine';
 }
 
-export function buildShadowPricingRecords(rawRows: ShadowPricingRawRecord[]) {
+export function buildShadowPricingRecords(rawRows: ShadowPricingRawRecord[], provenance: QuoteTimeProvenance = 'unknown') {
   const records: ShadowPricingRecord[] = [];
   const returnedRows = rawRows.length;
   const fieldBlockers: Record<string, number> = {};
   const block = (name: string) => { fieldBlockers[name] = (fieldBlockers[name] ?? 0) + 1; };
 
   for (const [index, row] of rawRows.entries()) {
-    // Legacy Date/Amount/Workers are not evidence of estimate-time/completed-price provenance.
+    // Historical outcomes are mapped separately; none imply quote-time availability.
     const estimateDate = parseDate(row.estimate_date);
     const price = parseCurrency(row.final_completed_price);
     if (!estimateDate) block('missing_or_invalid_canonical_estimate_date');
@@ -272,8 +274,7 @@ export function buildShadowPricingRecords(rawRows: ShadowPricingRawRecord[]) {
       cityRegion: normalizeCategory(row.city),
       distanceTier: normalizeCategory(row.distance_tier),
       estimatedLoadCount: parseNumber(row.estimated_load_count),
-      // Schema V2 explicitly defines lowercase workers as planned count. Blank wins.
-      plannedWorkers: parseNumber(valueFor(row, ['planned_workers', 'workers'])),
+      plannedWorkers: parseNumber(row.planned_workers),
       stairs: parseBooleanLike(row.stairs),
       carryDistance: normalizeCategory(row.carry_distance),
       heavyItems: parseBooleanLike(row.heavy_items),
@@ -281,6 +282,10 @@ export function buildShadowPricingRecords(rawRows: ShadowPricingRawRecord[]) {
     };
     const tier = classifyShadowPricingTier(features);
     if (tier === 'unknown_inputs') block('missing_or_invalid_tier_inputs');
+    if (provenance !== 'verified_pre_quote') {
+      block('unknown_quote_time_provenance');
+      continue;
+    }
     if (!estimateDate || price === null || price <= 0) continue;
 
     records.push({
@@ -501,8 +506,8 @@ export function intervalCoverage(intervals: Array<{ actual: number; lower: numbe
   };
 }
 
-export function runShadowPricingBenchmark(rawRows: ShadowPricingRawRecord[], codeCommit = 'local-worktree'): ShadowBenchmarkResult {
-  const { returnedRows, records, fieldBlockers } = buildShadowPricingRecords(rawRows);
+export function runShadowPricingBenchmark(rawRows: ShadowPricingRawRecord[], codeCommit = 'local-worktree', provenance: QuoteTimeProvenance = 'unknown'): ShadowBenchmarkResult {
+  const { returnedRows, records, fieldBlockers } = buildShadowPricingRecords(rawRows, provenance);
   const folds = createTimeAwareFolds(records);
   const models: ShadowBenchmarkModelName[] = [
     'deterministic_job_tier_median',
@@ -549,6 +554,7 @@ export function runShadowPricingBenchmark(rawRows: ShadowPricingRawRecord[], cod
       eligibleRows: records.length,
       excludedRows: returnedRows - records.length,
       fieldBlockers,
+      historical: historicalDiagnostics(rawRows),
       dateCoverage: {
         earliest: formatDate(dates[0]),
         latest: formatDate(dates[dates.length - 1])

@@ -1,5 +1,18 @@
 # Shadow Pricing Benchmark Results
 
+## 2026-09-10 Adapter Correction: No New Live Run
+
+Tristan confirmed Date is completion date, Workers actual crew, Amount revenue,
+and Net Profit profit. Projected loads and job characteristics were recorded
+before the job; availability before the quote is not confirmed. See the updated
+benchmark methodology for exact adapter mappings and remaining factual questions.
+
+The adapter now separates format-valid history from unknown quote-time provenance,
+with per-field absent-header/blank/invalid/valid aggregate diagnostics. No live
+read or benchmark was run for this change. The saved counts below belong to the
+2026-09-05 implementation; they are not new counts for the corrected adapter.
+New diagnostic counts remain unmeasured. NO_MODEL_READY remains unchanged.
+
 ## Corrected Read-Only Run
 
 Executed once at 2026-09-05T08:42:22.362Z after 13 targeted tests and typecheck
