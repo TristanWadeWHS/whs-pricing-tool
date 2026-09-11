@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeForm, sampleAnalysis, sampleInputs } from './helpers';
 import { clarificationQuestions, issueClarification, verifyClarification } from '../app/lib/clarification';
 import { validateEstimateForm } from '../app/lib/request-validation';
+import { priceJob } from '../app/lib/pricing';
+import { canDisplayEstimate } from '../app/lib/analyze-client';
+import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from '../app/lib/analysis-confidence';
 const parseMock = vi.hoisted(() => vi.fn());
 vi.mock('openai', () => ({ default: vi.fn(function () { return { responses: { parse: parseMock } }; }) }));
 import { POST } from '../app/api/analyze/route';
@@ -50,9 +53,14 @@ describe('server-enforced clarification', () => {
     parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis({ confidencePercent: confidence }) });
     const { body } = await post(answerForm(initial.clarification.token, notSure));
     expect(body.status).toBe('needs_manager_review');
-    expect(body.clarification).toBeUndefined();
-    expect(body.analysis.confidencePercent).toBe(confidence);
-    expect(body.pricing.customerMessage).toContain('before sending a firm quote');
+    expect(body.analysisConfidence).toEqual({ score: confidence, scale: '1-100', source: 'model_reported', calibrated: false });
+    if (confidence < 85) {
+      expect(body.clarification).toBeNull(); expect(body.analysis).toBeNull(); expect(body.pricing).toBeNull();
+      expect(body.priceWithheld).toBe(true);
+    } else {
+      expect(body.clarification).toBeUndefined();
+      expect(body.pricing.customerMessage).toContain('before sending a firm quote');
+    }
     if (notSure) expect(parseMock.mock.calls[1][0].input[0].content[1].text).toContain('Not sure');
   });
   it('requires unpriced review if no actionable unanswered question exists', async () => {
@@ -86,6 +94,32 @@ describe('server-enforced clarification', () => {
   it('does not reinterpret an invalid fractional percent as high confidence', async () => {
     parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis({ confidencePercent: 0.84 }) });
     expect((await post()).body.status).toBe('analysis_failed');
+  });
+  it.each([73, 84, 85, 86])('strictly withholds after reassessment at %s without repeating questions', async (confidencePercent) => {
+    const initial = await begin();
+    parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis({ confidencePercent,
+      warnings: ['$999 raw model price must not escape'], uncertaintyNotes: ['Unknown contents, expected cost $999'] }) });
+    const { body } = await post(answerForm(initial.clarification.token));
+    expect(canDisplayEstimate(body)).toBe(confidencePercent >= 85);
+    if (confidencePercent < 85) {
+      expect(body.status).toBe('needs_manager_review'); expect(body.pricing).toBeNull(); expect(body.analysis).toBeNull();
+      expect(body.clarification).toBeNull();
+      expect(JSON.stringify(body)).not.toMatch(/\$|customerMessage|suggestedQuote|recommendedRange|competitor/);
+      expect(body.statusReasons).toContain('Closed-container contents remain unconfirmed.');
+    }
+  });
+  it('labels the score honestly and blocks historical/result rendering even for legacy low-score payloads', () => {
+    expect(ANALYSIS_CONFIDENCE_LABEL).toBe('Uncalibrated analysis-confidence score');
+    expect(ANALYSIS_CONFIDENCE_NOTE).toContain('not a probability of price correctness');
+    expect(canDisplayEstimate({ status: 'needs_manager_review', analysis: sampleAnalysis({ confidencePercent: 73 }), pricing: { suggestedQuote: 500 }, inputs: sampleInputs() })).toBe(false);
+  });
+  it('separates confidence from deterministic price drift and preserves input facts', () => {
+    const inputs = sampleInputs({ stairs: 'none', carryDistance: 'short', workers: 1 });
+    const original = sampleAnalysis({ confidencePercent: 90 });
+    expect(priceJob(inputs, { ...original, confidencePercent: 73 })).toEqual(priceJob(inputs, original));
+    expect(priceJob(inputs, { ...original, estimatedLoadPercent: 80 }).baseLoadPrice - priceJob(inputs, original).baseLoadPrice).toBe(135);
+    expect(priceJob(inputs, { ...original, heavyDebrisRisk: 'high' }).adjustments - priceJob(inputs, original).adjustments).toBe(125);
+    expect(inputs).toEqual(sampleInputs({ stairs: 'none', carryDistance: 'short', workers: 1 }));
   });
 });
 

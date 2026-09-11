@@ -80,3 +80,21 @@ export function verifyClarification(raw: FormDataEntryValue | null, context: Val
 export function hasUnresolvedAnswers(answers: ClarificationAnswer[]) {
   return answers.some((answer) => answer.notSure || /^(?:not sure|unsure|unknown|i don'?t know)[.!]?$/i.test(answer.answer));
 }
+
+export function unresolvedClarificationIssues(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[]) {
+  const topics = new Set(clarificationQuestions(analysis, notes).map((question) => question.id));
+  for (const answer of answers) if (hasUnresolvedAnswers([answer])) topics.add(answer.id);
+  const descriptions = {
+    hidden: 'Hidden or additional material remains unconfirmed.',
+    contents: 'Closed-container contents remain unconfirmed.',
+    dismantling: 'Attachment or dismantling requirements remain unconfirmed.',
+    dimensions: 'Item or pile dimensions remain unconfirmed.'
+  };
+  // Fixed issue labels cannot leak prices or instructions from raw model text.
+  return ['The uncalibrated analysis-confidence score remains below 85/100. Manager review is required before any pricing.',
+    ...Array.from(topics, (topic) => descriptions[topic]),
+    ...(analysis.heavyDebrisRisk !== 'low' ? ['Heavy-material handling remains a review concern.'] : []),
+    ...(analysis.hiddenDebrisRisk !== 'low' ? ['Hidden-material scope remains a review concern.'] : []),
+    ...(analysis.difficulty !== 'easy' ? ['Labor requirements remain a review concern.'] : []),
+    ...(analysis.photoAngleQuality === 'poor' ? ['Photo clarity is insufficient.'] : [])];
+}

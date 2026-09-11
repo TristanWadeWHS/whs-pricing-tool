@@ -11,7 +11,7 @@ page.setDefaultTimeout(20000);
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 const analysis = { estimatedLoadPercent: 50, estimatedLoadCount: 0.5, estimatedLoadRange: 'Synthetic', materialType: 'mixed junk',
-  difficulty: 'easy', heavyDebrisRisk: 'low', confidencePercent: 70, photoAngleQuality: 'good', hiddenDebrisRisk: 'low',
+  difficulty: 'easy', heavyDebrisRisk: 'low', confidencePercent: 85, photoAngleQuality: 'good', hiddenDebrisRisk: 'low',
   visibleItems: [], observedFacts: [], assumptions: [], uncertaintyNotes: [], warnings: [], questionsToAsk: [] };
 function priced(amount, status = 'needs_manager_review') {
   return { status, statusReasons: ['Provisional; manager review required.'], analysis, inputs: { stairs: 'none' }, confidenceThreshold: 85,
@@ -35,6 +35,10 @@ await page.route('**/api/analyze', async (route) => {
       ] } } });
   }
   if (index === 1) return route.fulfill({ status: 502, json: { status: 'analysis_failed', pricing: null, error: 'Synthetic retryable failure' } });
+  if (index === 2) return route.fulfill({ json: { status: 'needs_manager_review', priceWithheld: true,
+    analysisConfidence: { score: 73, scale: '1-100', source: 'model_reported', calibrated: false },
+    analysis: null, pricing: null, inputs: null, clarification: null,
+    statusReasons: ['Closed-container contents remain unconfirmed.'] } });
   if (index === 3) {
     await new Promise((resolve) => { releaseStale = resolve; });
     return route.fulfill({ json: priced(999) }).catch(() => {});
@@ -66,13 +70,17 @@ try {
     await page.screenshot({ path: join(tmpdir(), `whs-clarification-${width}.png`) });
   }
   await page.getByRole('button', { name: 'Reassess estimate', exact: true }).click();
-  await page.getByRole('alert').waitFor();
+  await page.getByText('Synthetic retryable failure', { exact: true }).waitFor();
   assert.equal(await page.locator('#answer-hidden').inputValue(), 'Only the visible items.');
   assert(await page.getByRole('checkbox', { name: 'Not sure' }).nth(1).isChecked());
   await page.getByRole('button', { name: 'Reassess estimate', exact: true }).click();
-  await page.locator('.quoteBox h2').waitFor();
-  assert.equal(await page.locator('.quoteBox h2').innerText(), '$325');
-  assert.equal(await page.locator('.clarificationPanel').count(), 0);
+  await page.getByRole('heading', { name: 'Manager review required', exact: true }).waitFor();
+  assert.equal(await page.locator('.quoteBox, .historicalReference').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Reassess estimate', exact: true }).count(), 0);
+  assert(!(await page.locator('body').innerText()).includes('$'));
+  assert((await page.locator('body').innerText()).includes('Uncalibrated analysis-confidence score: 73/100'));
+  assert((await page.locator('body').innerText()).includes('not a probability of price correctness'));
+  await page.screenshot({ path: join(tmpdir(), 'whs-clarification-73-review.png') });
   assert.equal(requests[2].notes, requests[0].notes);
   assert.equal(requests[2].photos, requests[0].photos);
   assert.equal(JSON.parse(requests[2].clarification).answers[1].notSure, true);
@@ -85,5 +93,5 @@ try {
   await page.waitForTimeout(250);
   assert.equal(await page.locator('.quoteBox h2').innerText(), '$545');
   assert.deepEqual(errors, []);
-  console.log('PASS: two-step flow; no pre-clarification prices; original context/answers retained; Not sure; retry; duplicate and stale response protection; desktop/mobile.');
+  console.log('PASS: two-step flow; strict 73/100 withholding and score label; no historical prices or repeated questions; retained context/answers; retry; duplicate/stale guards; desktop/mobile.');
 } finally { releaseFirst?.(); releaseStale?.(); await browser.close(); }

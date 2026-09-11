@@ -40,8 +40,8 @@ staff. Rotating that key invalidates outstanding tokens. It is not an auth chang
 Reassessment uses original inputs/photos plus a separate untrusted employee-answer
 prompt. It never instructs the model to raise confidence. A completed clarification
 does not trigger another automatic question loop. Remaining confidence below 85
-or Not sure forces provisional internal pricing with manager review and no firm
-customer quote; all other existing safeguards still apply. Provider/validation
+withholds all prices/ranges/customer quote text and requires manager review. At or
+above 85, Not sure still requires existing manager review. Provider/validation
 failures return no fabricated price. Expired/modified contexts require explicit
 restart; failed reassessments may retry the same signed token while valid.
 
@@ -80,7 +80,7 @@ then existing internal Basic auth. Submit photos with genuinely uncertain scope.
 For a returned confidence below 85, expect the clarification panel and no quote,
 range, historical prices or competitor figures. Answer known details and select
 Not sure for unknowns; reassess once. Verify a normal updated result with existing
-safeguards, or provisional manager review if still uncertain. There should be no
+safeguards, or unpriced manager review if still below 85. There should be no
 automatic repeated question loop. If no actionable questions exist, expect unpriced
 manager review. Do not intentionally fabricate confidence to force the live path.
 The synthetic script deterministically covers both sides of the 85 boundary via
@@ -96,3 +96,7 @@ https://whs-pricing-tool-p8kg-c5t4l2caq-wade-home-services.vercel.app,
 tag pricing-tool-schema-v2-stable-2026-09-05. Pricing formulas/constants, configured
 model, initial analysis prompt, auth and website repository are unchanged.
 No merge, Production deployment, release or deletion is authorized.
+
+The later strict-withholding correction supersedes the original allowance of
+low-score internal ranges. See confidence-investigation.md for source tracing,
+price-drift evidence, rollback reference and updated verification.

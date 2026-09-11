@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { HistoricalReference } from './historical-reference';
-import { failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
+import { canDisplayEstimate, failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
+import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from './lib/analysis-confidence';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
 import {
   buildAnalyzeFormWithOptimizedPhotos,
@@ -29,6 +30,7 @@ export default function Home() {
   const [answers, setAnswers] = useState<Record<string, { answer: string; notSure: boolean }>>({});
   const [clarificationError, setClarificationError] = useState('');
   const clarifying = result?.status === 'clarification_required' && Boolean(result.clarification);
+  const withheld = clarifying || Boolean(result?.priceWithheld) || (result?.status === 'needs_manager_review' && !canDisplayEstimate(result));
 
   useEffect(() => {
     return () => {
@@ -189,9 +191,9 @@ export default function Home() {
           <label>
             Distance tier
             <select name="distanceTier" defaultValue="under25">
-              <option value="under25">{clarifying ? 'Within 25 miles' : 'Within 25 miles - $130 minimum'}</option>
-              <option value="25to40">{clarifying ? '25-40 miles' : '25-40 miles - $145 minimum'}</option>
-              <option value="40to65">{clarifying ? '40-65 miles' : '40-65 miles - $175 minimum'}</option>
+              <option value="under25">{withheld ? 'Within 25 miles' : 'Within 25 miles - $130 minimum'}</option>
+              <option value="25to40">{withheld ? '25-40 miles' : '25-40 miles - $145 minimum'}</option>
+              <option value="40to65">{withheld ? '40-65 miles' : '40-65 miles - $175 minimum'}</option>
             </select>
           </label>
 
@@ -269,9 +271,14 @@ export default function Home() {
         {clarificationError && <p role="alert">{clarificationError}</p>}
       </section>}
 
-      {result?.status === 'needs_manager_review' && !result.pricing && <section className="clarificationPanel" role="status">
+      {withheld && result?.analysisConfidence && <section aria-label="Analysis-confidence score">
+        <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysisConfidence.score}/100</p>
+        <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
+      </section>}
+
+      {result?.status === 'needs_manager_review' && !canDisplayEstimate(result) && <section className="clarificationPanel" role="status">
         <h2>Manager review required</h2>
-        <p>{result.statusReasons?.join(' ')}</p>
+        <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul>
       </section>}
 
       {result?.error && (
@@ -282,7 +289,7 @@ export default function Home() {
         </section>
       )}
 
-      {!clarifying && result?.analysis && result?.pricing && (
+      {canDisplayEstimate(result) && (
         <section className="card result">
           <div className="quoteBox">
             <p>{result.status === 'direct_quote_eligible' ? 'Suggested Quote' : 'Internal Estimate'}</p>
@@ -295,8 +302,9 @@ export default function Home() {
           <div className="summaryBox">
             <h3>Estimate Quality</h3>
             <p><b>Status:</b> {formatStatus(result.status)}</p>
-            <p><b>Confidence:</b> {result.analysis.confidencePercent}%</p>
-            <p><b>Direct-quote threshold:</b> {result.confidenceThreshold}% provisional</p>
+            <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysis.confidencePercent}/100</p>
+            <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
+            <p><b>Direct-quote workflow threshold:</b> {result.confidenceThreshold}/100</p>
             <p><b>Photo angle quality:</b> {result.analysis.photoAngleQuality}</p>
             <p><b>Potential hidden debris risk:</b> {result.analysis.hiddenDebrisRisk}</p>
             {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}

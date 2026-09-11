@@ -4,7 +4,8 @@ import { priceJob } from '../../lib/pricing';
 import { validateEstimateForm } from '../../lib/request-validation';
 import { AnalysisError, analyzeJobPhotosWithOpenAI } from '../../lib/openai-analysis';
 import { buildCustomerMessage, determineQuoteStatus } from '../../lib/quote-status';
-import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, needsClarification, verifyClarification } from '../../lib/clarification';
+import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, needsClarification, unresolvedClarificationIssues, verifyClarification } from '../../lib/clarification';
+import { analysisConfidence } from '../../lib/analysis-confidence';
 
 export const runtime = 'nodejs';
 
@@ -68,19 +69,20 @@ export async function POST(req: NextRequest) {
       estimatedLoadPercent: analysis.estimatedLoadPercent
     });
 
-    if (!answers && needsClarification(analysis)) {
-      const questions = clarificationQuestions(analysis, inputs.notes);
+    if (needsClarification(analysis)) {
+      const questions = answers ? [] : clarificationQuestions(analysis, inputs.notes);
       return NextResponse.json({ status: questions.length ? 'clarification_required' : 'needs_manager_review',
-        analysis: null, pricing: null, inputs: null,
-        statusReasons: questions.length ? ['Scope clarification is required before pricing.'] : ['Uncertainty cannot be resolved by the supported questions. Manager review is required before quoting.'],
+        analysis: null, pricing: null, inputs: null, priceWithheld: true,
+        analysisConfidence: analysisConfidence(analysis.confidencePercent),
+        statusReasons: questions.length ? ['Scope clarification is required before pricing.'] : unresolvedClarificationIssues(analysis, inputs.notes, answers ?? []),
         clarification: questions.length ? { questions, token: issueClarification(validation.value, questions) } : null
       }, { headers: { 'Cache-Control': 'no-store' } });
     }
     const quoteStatus = determineQuoteStatus(inputs, analysis);
-    if (answers && (needsClarification(analysis) || hasUnresolvedAnswers(answers))) {
+    if (answers && hasUnresolvedAnswers(answers)) {
       quoteStatus.status = 'needs_manager_review';
       quoteStatus.reasons = [...quoteStatus.reasons.filter((reason) => !reason.startsWith('Meets provisional')),
-        'Provisional internal estimate only: clarification remains uncertain or confidence is below 85%. Manager review is required.'];
+        'Clarification includes an unknown answer. Manager review is required before a firm quote.'];
     }
     const pricing = priceJob(inputs, analysis);
     const customerMessage = buildCustomerMessage(pricing, quoteStatus.status);
@@ -89,6 +91,8 @@ export async function POST(req: NextRequest) {
       status: quoteStatus.status,
       statusReasons: quoteStatus.reasons,
       confidenceThreshold: quoteStatus.threshold,
+      analysisConfidence: analysisConfidence(analysis.confidencePercent),
+      priceWithheld: false,
       analysis,
       pricing: { ...pricing, customerMessage },
       inputs
