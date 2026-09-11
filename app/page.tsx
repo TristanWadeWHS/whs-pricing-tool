@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { HistoricalReference } from './historical-reference';
+import { ShadowDiagnostics } from './shadow-diagnostics';
 import { canDisplayEstimate, failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
 import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from './lib/analysis-confidence';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
@@ -288,6 +289,8 @@ export default function Home() {
           {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
         </section>
       )}
+
+      {result?.diagnostics && <ShadowDiagnostics result={result.diagnostics} />}
 
       {canDisplayEstimate(result) && (
         <section className="card result">

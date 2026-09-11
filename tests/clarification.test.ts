@@ -5,6 +5,7 @@ import { validateEstimateForm } from '../app/lib/request-validation';
 import { priceJob } from '../app/lib/pricing';
 import { canDisplayEstimate } from '../app/lib/analyze-client';
 import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from '../app/lib/analysis-confidence';
+import { dimensionNote, inventory } from './shadow-inventory-fixtures';
 const parseMock = vi.hoisted(() => vi.fn());
 vi.mock('openai', () => ({ default: vi.fn(function () { return { responses: { parse: parseMock } }; }) }));
 import { POST } from '../app/api/analyze/route';
@@ -24,6 +25,30 @@ function answerForm(token: string, notSure = false) {
 }
 
 describe('server-enforced clarification', () => {
+  it('isolates malformed shadow evidence from existing pricing and strips raw evidence', async () => {
+    vi.stubEnv('VERCEL_ENV', 'preview');
+    parseMock.mockResolvedValueOnce({ output_parsed: { ...sampleAnalysis(), shadow: { items: 'invalid' } } });
+    const first = (await post()).body;
+    expect(first.status).toBe('direct_quote_eligible'); expect(first.pricing.suggestedQuote).toBe(230);
+    expect(first.diagnostics.volume.status).toBe('unavailable'); expect(first.analysis.shadow).toBeUndefined();
+    parseMock.mockResolvedValueOnce({ output_parsed: { ...sampleAnalysis(), shadow: inventory() } });
+    const second = (await post(makeForm({ notes: dimensionNote }))).body;
+    expect(second.pricing).toEqual(first.pricing);
+    expect(second.diagnostics.volume.cubicYards.min).toBeCloseTo(2);
+    expect(JSON.stringify(second.diagnostics)).not.toContain(dimensionNote);
+  });
+  it('keeps diagnostics price-free below the gate and omits them outside Preview/development', async () => {
+    vi.stubEnv('VERCEL_ENV', 'preview');
+    parseMock.mockResolvedValueOnce({ output_parsed: { ...low(), shadow: inventory() } });
+    const body = (await post()).body;
+    expect(body.priceWithheld).toBe(true); expect(body.pricing).toBeNull();
+    expect(body.diagnostics).toBeDefined();
+    expect(JSON.stringify(body)).not.toMatch(/\$|customerMessage|suggestedQuote|recommendedRange/);
+    vi.stubEnv('VERCEL_ENV', 'production'); vi.stubEnv('NODE_ENV', 'production');
+    parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis() });
+    expect((await post()).body.diagnostics).toBeUndefined();
+    expect(JSON.stringify(parseMock.mock.lastCall?.[0].input)).not.toContain('INTERNAL SHADOW');
+  });
   it.each([84, 85, 86])('handles confidence %s on the schema percent scale', async (confidencePercent) => {
     parseMock.mockResolvedValue({ output_parsed: { ...low(), confidencePercent, warnings: [] } });
     const { body } = await post();
@@ -105,7 +130,7 @@ describe('server-enforced clarification', () => {
       expect(body.status).toBe('needs_manager_review'); expect(body.pricing).toBeNull(); expect(body.analysis).toBeNull();
       expect(body.clarification).toBeNull();
       expect(JSON.stringify(body)).not.toMatch(/\$|customerMessage|suggestedQuote|recommendedRange|competitor/);
-      expect(body.statusReasons).toContain('Closed-container contents remain unconfirmed.');
+      expect(body.statusReasons).toContain('Container contents remains unconfirmed.');
     }
   });
   it('labels the score honestly and blocks historical/result rendering even for legacy low-score payloads', () => {

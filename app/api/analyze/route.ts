@@ -6,6 +6,8 @@ import { AnalysisError, analyzeJobPhotosWithOpenAI } from '../../lib/openai-anal
 import { buildCustomerMessage, determineQuoteStatus } from '../../lib/quote-status';
 import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, needsClarification, unresolvedClarificationIssues, verifyClarification } from '../../lib/clarification';
 import { analysisConfidence } from '../../lib/analysis-confidence';
+import { safeShadowDiagnostics } from '../../lib/shadow-diagnostics';
+import { shadowPreviewEnabled } from '../../lib/shadow-schema';
 
 export const runtime = 'nodejs';
 
@@ -69,12 +71,14 @@ export async function POST(req: NextRequest) {
       estimatedLoadPercent: analysis.estimatedLoadPercent
     });
 
+    const diagnostics = shadowPreviewEnabled() ? safeShadowDiagnostics(inputs, analysis, answers ?? [], photos.length) : undefined;
     if (needsClarification(analysis)) {
       const questions = answers ? [] : clarificationQuestions(analysis, inputs.notes);
       return NextResponse.json({ status: questions.length ? 'clarification_required' : 'needs_manager_review',
         analysis: null, pricing: null, inputs: null, priceWithheld: true,
         analysisConfidence: analysisConfidence(analysis.confidencePercent),
-        statusReasons: questions.length ? ['Scope clarification is required before pricing.'] : unresolvedClarificationIssues(analysis, inputs.notes, answers ?? []),
+        statusReasons: questions.length ? ['Scope clarification is required before pricing.'] : unresolvedClarificationIssues(analysis, inputs.notes, answers ?? [], photos.length),
+        diagnostics,
         clarification: questions.length ? { questions, token: issueClarification(validation.value, questions) } : null
       }, { headers: { 'Cache-Control': 'no-store' } });
     }
@@ -93,7 +97,8 @@ export async function POST(req: NextRequest) {
       confidenceThreshold: quoteStatus.threshold,
       analysisConfidence: analysisConfidence(analysis.confidencePercent),
       priceWithheld: false,
-      analysis,
+      analysis: Object.fromEntries(Object.entries(analysis).filter(([key]) => key !== 'shadow')),
+      diagnostics,
       pricing: { ...pricing, customerMessage },
       inputs
     });

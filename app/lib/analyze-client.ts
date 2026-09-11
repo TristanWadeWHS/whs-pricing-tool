@@ -1,6 +1,8 @@
 import { IMAGE_TOO_LARGE_MESSAGE } from './estimate-limits';
+import type { ShadowDiagnostics } from './shadow-diagnostics';
 
 export type Result = {
+  diagnostics?: ShadowDiagnostics;
   status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible' | 'clarification_required';
   clarification?: { token: string; questions: Array<{ id: string; text: string }> };
   priceWithheld?: boolean;

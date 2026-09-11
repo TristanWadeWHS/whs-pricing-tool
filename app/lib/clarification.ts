@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { VisionAnalysis } from './analysis-schema';
 import type { ValidatedEstimateRequest } from './request-validation';
+import { factReviewIssues, reconcileClarificationFacts } from './clarification-facts';
 
 export const CLARIFICATION_THRESHOLD = 0.85;
 export const QUESTION_TEXT = {
@@ -81,20 +82,15 @@ export function hasUnresolvedAnswers(answers: ClarificationAnswer[]) {
   return answers.some((answer) => answer.notSure || /^(?:not sure|unsure|unknown|i don'?t know)[.!]?$/i.test(answer.answer));
 }
 
-export function unresolvedClarificationIssues(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[]) {
+export function unresolvedClarificationIssues(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[], photoCount = 0) {
   const topics = new Set(clarificationQuestions(analysis, notes).map((question) => question.id));
   for (const answer of answers) if (hasUnresolvedAnswers([answer])) topics.add(answer.id);
-  const descriptions = {
-    hidden: 'Hidden or additional material remains unconfirmed.',
-    contents: 'Closed-container contents remain unconfirmed.',
-    dismantling: 'Attachment or dismantling requirements remain unconfirmed.',
-    dimensions: 'Item or pile dimensions remain unconfirmed.'
-  };
+  const facts = reconcileClarificationFacts(notes, answers, analysis.shadow?.contradictions, photoCount);
   // Fixed issue labels cannot leak prices or instructions from raw model text.
   return ['The uncalibrated analysis-confidence score remains below 85/100. Manager review is required before any pricing.',
-    ...Array.from(topics, (topic) => descriptions[topic]),
-    ...(analysis.heavyDebrisRisk !== 'low' ? ['Heavy-material handling remains a review concern.'] : []),
-    ...(analysis.hiddenDebrisRisk !== 'low' ? ['Hidden-material scope remains a review concern.'] : []),
-    ...(analysis.difficulty !== 'easy' ? ['Labor requirements remain a review concern.'] : []),
+    ...factReviewIssues(facts, [...topics]),
+    ...(analysis.heavyDebrisRisk !== 'low' ? ['Existing heavy-material safety review rule still applies.'] : []),
+    ...(analysis.hiddenDebrisRisk !== 'low' ? ['Existing hidden-material safety review rule still applies; this does not invalidate a scope answer.'] : []),
+    ...(analysis.difficulty !== 'easy' ? ['Existing labor safety review rule still applies.'] : []),
     ...(analysis.photoAngleQuality === 'poor' ? ['Photo clarity is insufficient.'] : [])];
 }

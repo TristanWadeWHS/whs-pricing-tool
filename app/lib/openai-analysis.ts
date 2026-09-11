@@ -1,7 +1,9 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { JobInputs } from './pricing';
-import { VisionAnalysis, visionAnalysisSchema } from './analysis-schema';
+import { VisionAnalysis, visionAnalysisSchema, previewAnalysisSchema } from './analysis-schema';
+import { shadowPreviewEnabled } from './shadow-schema';
+import { validatedShadowEvidence } from './shadow-volume';
 import { QUESTION_TEXT, type ClarificationAnswer } from './clarification';
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6';
@@ -40,12 +42,13 @@ export async function analyzeJobPhotosWithOpenAI(
           content: [
             { type: 'input_text', text: buildAnalysisPrompt(inputs) },
             ...(options.clarifications ? [{ type: 'input_text' as const, text: buildClarificationPrompt(options.clarifications) }] : []),
+            ...(shadowPreviewEnabled() ? [{ type: 'input_text' as const, text: buildShadowPrompt(imageParts.length) }] : []),
             ...imageParts
           ]
         }
       ],
       text: {
-        format: zodTextFormat(visionAnalysisSchema, 'whs_job_photo_analysis')
+        format: zodTextFormat(shadowPreviewEnabled() ? previewAnalysisSchema : visionAnalysisSchema, 'whs_job_photo_analysis')
       }
     }),
     timeoutMs
@@ -56,8 +59,17 @@ export async function analyzeJobPhotosWithOpenAI(
     throw new AnalysisError('Model did not return a parsed structured analysis.', 'missing_structured_output');
   }
 
-  visionAnalysisSchema.parse(parsed);
-  return parsed;
+  if (!shadowPreviewEnabled()) { visionAnalysisSchema.parse(parsed); return parsed; }
+  const { shadow, ...core } = parsed as VisionAnalysis;
+  visionAnalysisSchema.parse(core);
+  return { ...core, shadow: validatedShadowEvidence(shadow) };
+}
+
+export function buildShadowPrompt(photoCount: number) {
+  return `Additional INTERNAL SHADOW evidence only; never use shadow calculations to set confidence, load estimates or price. There are ${photoCount} photos numbered 1..${photoCount} in supplied order.
+Return shadow=null when evidence is unavailable. Build a single cross-photo inventory: the same physical item/group must retain one ID across views and list all photoRefs. Do not invent extra instances. Mark uncertain overlap as uncertain. Give each constituent its containing pile/group parentId; never model the same contents as separate root groups. Quantity is the count represented by one dimension envelope (a whole pile normally has quantity 1). Attribute quantityEvidence to the photo estimate or an exact employee count excerpt; unknown count is null.
+Dimensions are ranges with units; photo estimates are NOT measurements. employee_report/employee_measurement require an exact excerpt from original notes or answers supporting those dimensions; never claim measurement from a photo. Unknown dimensions are null. Packing loaded_envelope means dimensions already account for loaded shape, stacking and voids, factor=null or 1. Otherwise require explicit job-specific employee packing expansion factors (1..3), with exact supporting excerpt; no universal compaction or packing factors. Reduced dimensions after disassembly require employee-confirmed disassembly. Unsupported packing is unknown. Material flags do not imply numeric mass or legal payload.
+Clarification answers are attributed facts about the same original scope. Repeated uncertainty is not contradictory evidence. Do not reopen an answered topic unless a specific visible observation contradicts that exact answer: give questionId, exact answer in contradicts, photoRef, region and concrete observation. If no such evidence exists, contradictions=[]. Not sure stays unknown. Do not infer that resolving contents/scope/disassembly resolves missing dimensions. Do not include names, addresses, prices or other sensitive information in shadow evidence.`;
 }
 
 export function buildClarificationPrompt(answers: ClarificationAnswer[]) {
