@@ -32,7 +32,9 @@ describe('confirmed historical meanings', () => {
 
   it('preserves canonical blanks rather than silently falling back', () => {
     const result = adaptHistoricalRecord({ ...historical, completion_date: '', final_completed_price: '', actual_workers: '' });
-    for (const field of ['completion_date', 'final_completed_price', 'actual_workers'] as const) {
+    expect(result.fields.completion_date).toEqual({ status: 'valid', value: '2026-01-15' });
+    expect(result.dateAliases.resolvedWithBlankAlias).toBe(true);
+    for (const field of ['final_completed_price', 'actual_workers'] as const) {
       expect(result.fields[field]).toEqual({ status: 'conflict', value: null });
     }
     expect(adaptHistoricalRecord({ ...historical, final_completed_price: '300' }).fields.final_completed_price.status).toBe('conflict');

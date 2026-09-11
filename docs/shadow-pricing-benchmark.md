@@ -25,10 +25,16 @@ benchmark only. The Sheet and those historical migration records are unchanged.
 | Demolition | demo_required | Binary requirement; pre-quote timing unconfirmed |
 
 Aliases are explicitly enumerated, then case/space/underscore normalized.
-All present aliases are checked together. Different parsed values, blank versus
-populated aliases, or invalid duplicate aliases produce a conflict and null value;
-none is silently selected. Equivalent parsed values are accepted. Repeated
-identical source headers block lossy conversion before analysis.
+All present aliases are checked together. For non-date fields, different parsed
+values, blank versus populated aliases, or invalid duplicate aliases produce a
+conflict and null value; none is silently selected. Equivalent values are accepted.
+For confirmed completion-date aliases, empty cells are absence of a date, not a
+contradictory date: resolve only when all populated aliases parse to the same date.
+Report blank-alias resolutions explicitly. Invalid populated dates remain invalid;
+different valid populated dates remain conflicting and unresolved. Report absent,
+all-blank, invalid, equivalent-normalized and conflicting-populated date counts
+separately. Dates are never substituted for estimate dates. Repeated identical
+source headers block lossy conversion before analysis.
 Dates accept YYYY-MM-DD or M/D/YYYY. Binary formats accept yes/no, true/false,
 y/n or 1/0 (case-insensitive); other encodings are invalid, not guessed. Missing
 values remain null. Ordinal carry accepts finite numeric levels without assumed
@@ -156,6 +162,35 @@ per group. Ordinal values are syntax-validated, not range-certified.
 Service-type breakdown remains unavailable until a source field/category
 provenance is verified; arbitrary source text is never published as a category.
 No additional field-definition confirmation is being requested here.
+
+## Retrospective Final-Price Segments
+
+Small <= $450; Medium > $450 and <= $1,000; Large > $1,000 and <= $2,500;
+Major project > $2,500. These mutually exclusive segments use valid parsed final
+customer price. Missing, invalid and conflicting prices are unclassified. Valid
+zero/signed prices are not silently replaced or dropped. Commercial/residential
+is a separate classification and is never inferred from price.
+
+Report job counts and percentages of all priced jobs, segment revenue and its
+percentage of all priced revenue, mean, median, quartiles and extremes. Percentiles
+use linear interpolation at (n-1)*p on sorted valid values, rounded to two decimals.
+Revenue share is null when total revenue is zero. Empty distributions are null;
+empty counts/revenue sums are zero. No missing observation is imputed as zero.
+
+Segments with fewer than ten priced jobs are flagged as small samples, without
+confidence claims. Price/revenue summaries for nonempty segments below five jobs
+are privacy-suppressed. Load summaries need five paired observations; always
+report paired and unavailable counts. Differences are projected minus actual
+recorded numbers with unverified capacity-unit comparability, not predictive error.
+Each characteristic has a segment denominator, valid denominator, separate
+absent/blank/invalid/conflict counts and observed binary/ordinal/actual-worker
+frequencies. Actual workers are descriptive outcomes only. No physical carry
+units or new tier thresholds are invented.
+
+These summaries are retrospective descriptive baselines. Never use an actual
+price to select a prediction's baseline, fit price-selected models or measure
+pre-quote accuracy. No price segment enters predictor inputs or quote-time routing.
+Future routing requires independently verified quote-time scope/features.
 
 ## Decision
 

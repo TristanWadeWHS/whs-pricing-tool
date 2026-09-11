@@ -27,7 +27,7 @@ async function main() {
     // Descriptive analysis never calls a model fitter as a substitute.
     result = process.argv.includes('--descriptive-only')
       ? { status: 'ok', benchmarkStatus: 'BENCHMARK_BLOCKED_PROVENANCE', decision: 'NO_MODEL_READY', retrievalCounts,
-          sourceCode: codeCommit + (dirty ? '+working-tree-historical-v4' : ''), historical: historicalDiagnostics(rows) }
+          sourceCode: codeCommit + (dirty ? '+working-tree-price-segments-v1' : ''), historical: historicalDiagnostics(rows) }
       : runShadowPricingBenchmark(rows, codeCommit + (dirty ? '+working-tree-methodology-v2' : ''));
   } finally {
     for (const row of rows) for (const key of Object.keys(row)) delete row[key];

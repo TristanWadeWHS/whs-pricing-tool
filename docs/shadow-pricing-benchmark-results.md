@@ -1,5 +1,102 @@
 # Shadow Pricing Benchmark Results
 
+## Current Retrospective Price Segments
+
+Measured in one authorized read after 15 focused tests and typecheck passed.
+Source version: 5cd85ff8a643c936dd95af4c47fe3ff803e82585 plus price-segments-v1
+working-tree changes committed with this report. No raw snapshot was persisted.
+Earlier aggregate-only checkpoints could not reconstruct these segments.
+
+Verified returned data rows/nonempty records: 101/101; blank returned slots: 0.
+Priced and descriptive-usable jobs: 101; unclassified prices: 0.
+Valid date/price historical core: 101; complete-ten-field records: 92.
+Paired load records: 92. Before-quote provenance remains unverified for all 101;
+genuine quote-evaluation records: 0. BENCHMARK_BLOCKED_PROVENANCE / NO_MODEL_READY.
+
+### Segment Price Distribution
+
+| Retrospective segment | Jobs (% of 101) | Revenue (% of $71,035) | Median | Mean | P25 | P75 | Min | Max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Small | 75 (74.26%) | 14695 (20.69%) | 185 | 195.93 | 130 | 250 | 80 | 450 |
+| Medium | 11 (10.89%) | 7190 (10.12%) | 600 | 653.64 | 587.5 | 747.5 | 480 | 875 |
+| Large | 9 (8.91%) | 13200 (18.58%) | 1350 | 1466.67 | 1200 | 1800 | 1050 | 2200 |
+| Major project | 6 (5.94%) | 35950 (50.61%) | 4025 | 5991.67 | 3212.5 | 7200 | 2900 | 13800 |
+
+All money values are dollars. Small <=450; Medium >450 to 1000; Large >1000
+to 2500; Major project >2500. No commercial/residential inference is made.
+Large (9) and Major project (6) are flagged small samples (<10 jobs), not given
+statistical confidence claims. Percentiles use linear interpolation at (n-1)*p;
+summaries round to two decimals using JavaScript Math.round (ties toward positive
+infinity). Percentages may not sum exactly to 100 after rounding.
+
+### Paired Recorded Load Discrepancy
+
+| Segment | Paired | Unavailable | Mean projected minus actual | Mean absolute difference |
+| --- | ---: | ---: | ---: | ---: |
+| Small | 70 | 5 | -0.02 | 0.02 |
+| Medium | 11 | 0 | -0.05 | 0.05 |
+| Large | 8 | 1 | -0.12 | 0.13 |
+| Major project | 3 | 3 | suppressed | suppressed |
+
+Major project load magnitudes are privacy-suppressed because only 3 pairs exist.
+The pairs are in the same memory-only retrieval. Differences are in recorded
+numeric counts, not documented common trailer-capacity units, physical volume,
+pre-quote prediction accuracy or confidence percentages. Missing values are not zero.
+
+### Characteristics And Denominators
+
+| Segment | Characteristic/outcome | Valid / segment jobs | Blank | Absent/invalid/conflict | Recorded value: count |
+| --- | --- | ---: | ---: | --- | --- |
+| Small | stairs | 70/75 | 5 | 0/0/0 | false: 69, true: 1 |
+| Small | heavy_items | 70/75 | 5 | 0/0/0 | false: 60, true: 10 |
+| Small | demo_required | 70/75 | 5 | 0/0/0 | false: 69, true: 1 |
+| Small | carry_distance_ordinal | 70/75 | 5 | 0/0/0 | 0: 8, 1: 47, 2: 10, 3: 3, 4: 1, 5: 1 |
+| Small | actual_workers | 70/75 | 5 | 0/0/0 | 1: 67, 2: 3 |
+| Medium | stairs | 11/11 | 0 | 0/0/0 | false: 8, true: 3 |
+| Medium | heavy_items | 11/11 | 0 | 0/0/0 | false: 5, true: 6 |
+| Medium | demo_required | 11/11 | 0 | 0/0/0 | false: 9, true: 2 |
+| Medium | carry_distance_ordinal | 11/11 | 0 | 0/0/0 | 1: 3, 2: 2, 3: 3, 4: 1, 5: 2 |
+| Medium | actual_workers | 11/11 | 0 | 0/0/0 | 1: 6, 2: 5 |
+| Large | stairs | 8/9 | 1 | 0/0/0 | true: 1, false: 7 |
+| Large | heavy_items | 8/9 | 1 | 0/0/0 | true: 7, false: 1 |
+| Large | demo_required | 8/9 | 1 | 0/0/0 | false: 5, true: 3 |
+| Large | carry_distance_ordinal | 8/9 | 1 | 0/0/0 | 1: 1, 3: 2, 4: 1, 5: 4 |
+| Large | actual_workers | 8/9 | 1 | 0/0/0 | 1: 2, 2: 2, 3: 4 |
+| Major project | stairs | 3/6 | 3 | 0/0/0 | false: 3 |
+| Major project | heavy_items | 3/6 | 3 | 0/0/0 | true: 3 |
+| Major project | demo_required | 3/6 | 3 | 0/0/0 | false: 2, true: 1 |
+| Major project | carry_distance_ordinal | 3/6 | 3 | 0/0/0 | 3: 2, 4: 1 |
+| Major project | actual_workers | 3/6 | 3 | 0/0/0 | 3: 2, 5: 1 |
+
+Binary frequencies use true/false; carry is ordinal and no physical units or
+equal spacing are implied. Actual workers are completed-job outcomes only.
+No price-selected group is used to fit a model, select a prediction baseline or
+route a quote. Future routing needs verified quote-time scope/features.
+
+### Completion-Date Diagnosis
+
+All 101 rows have one or more blank completion-date aliases alongside a valid
+populated completion date. All 101 resolve without conflicting populated dates.
+Absent date-header rows: 0; all-blank rows: 0; invalid-populated-alias rows: 0;
+equivalent-multiple-populated-date rows: 0; genuinely conflicting populated-date
+rows: 0. Completion-date coverage: 2025-10-25 through 2026-09-09 (101 rows).
+A blank alias is not a contradictory date. Invalid populated aliases still block,
+and disagreeing populated dates are never arbitrarily selected. No date was
+relabeled as an estimate date. No date clarification is currently necessary.
+
+Duplicate screening assessed 101 date/price-core records and found one candidate
+group of two identical mapped records (one excess record). They could be distinct
+jobs; neither was removed. Earlier reports of 101 date conflicts reflect the
+older blank-versus-populated policy, not evidence of conflicting populated dates.
+
+The seven load/worker/characteristic fields each have 92 valid values and 9 blanks;
+price, profit and completion date each have 101 valid values. No invalid formats
+or unresolved field conflicts were counted in this read. Service-type source
+provenance remains unverified, so no service-type breakdown is published.
+Before-job recording still does not establish before-quote timing. Quantile
+regression remains unavailable, model rankings remain invalid, and no training,
+Sheet writes, deployment, Production integration or pricing changes occurred.
+
 ## Updated 101-Record Retrieval
 
 One authorized read succeeded after 23 affected tests and typecheck passed.

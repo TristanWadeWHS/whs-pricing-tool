@@ -58,6 +58,7 @@ function parse(field: Field, text: string): Value {
 
 export function adaptHistoricalRecord(row: Record<string, string>) {
   const fields = {} as Record<Field, { status: Status; value: Value }>;
+  let dateAliases = { absent: false, blankAliases: 0, invalidAliases: 0, populatedValidAliases: 0, equivalentNormalizedDates: false, conflictingPopulatedDates: false, resolvedWithBlankAlias: false };
   for (const field of Object.keys(HISTORICAL_MAPPINGS) as Field[]) {
     const normalize = (name: string) => name.trim().toLowerCase().replace(/[_\s]+/g, ' ');
     const aliases = new Set(HISTORICAL_MAPPINGS[field].map(normalize));
@@ -68,12 +69,27 @@ export function adaptHistoricalRecord(row: Record<string, string>) {
       return { value, status: (!text ? 'blank' : value === null ? 'invalid' : 'valid') as Status };
     });
     const first = parsed[0];
+    if (field === 'completion_date') {
+      const valid = parsed.filter((cell) => cell.status === 'valid');
+      const unique = new Set(valid.map((cell) => cell.value));
+      const invalid = parsed.filter((cell) => cell.status === 'invalid').length;
+      const blanks = parsed.filter((cell) => cell.status === 'blank').length;
+      dateAliases = { absent: !parsed.length, blankAliases: blanks, invalidAliases: invalid,
+        populatedValidAliases: valid.length, equivalentNormalizedDates: valid.length > 1 && unique.size === 1,
+        conflictingPopulatedDates: unique.size > 1, resolvedWithBlankAlias: blanks > 0 && unique.size === 1 && invalid === 0 };
+      // Confirmed completion-date aliases: blank is no competing date, not a contradiction.
+      fields[field] = unique.size > 1 ? { status: 'conflict', value: null }
+        : invalid ? { status: 'invalid', value: null }
+        : valid[0] ?? { status: parsed.length ? 'blank' : 'absent_header', value: null };
+      continue;
+    }
     // A populated alias cannot silently override a blank or conflicting canonical column.
     const conflict = parsed.length > 1 && (parsed.some((item) => item.status === 'invalid') || parsed.some((item) => item.status !== first.status || item.value !== first.value));
     fields[field] = conflict ? { value: null, status: 'conflict' } : first ?? { value: null, status: 'absent_header' };
   }
   return {
     fields,
+    dateAliases,
     // This means all mapped formats are valid, not that their business semantics are complete.
     formatValid: Object.values(fields).every((field) => field.status === 'valid'),
     quoteTimeProvenance: 'unknown' as const
@@ -90,6 +106,51 @@ function distribution(values: number[]) {
     return round(sorted[low] + (sorted[Math.ceil(index)] - sorted[low]) * (index - low));
   };
   return { count: sorted.length, min: quantile(0), p25: quantile(0.25), median: quantile(0.5), p75: quantile(0.75), max: quantile(1), mean: sorted.length ? round(sorted.reduce((a, b) => a + b, 0) / sorted.length) : null };
+}
+
+export const PRICE_SEGMENTS = ['Small', 'Medium', 'Large', 'Major project'] as const;
+export function retrospectivePriceSegment(price: number | null | undefined) {
+  if (typeof price !== 'number' || !Number.isFinite(price)) return null;
+  return price <= 450 ? 'Small' : price <= 1000 ? 'Medium' : price <= 2500 ? 'Large' : 'Major project';
+}
+
+function retrospectiveSegments(rows: ReturnType<typeof adaptHistoricalRecord>[]) {
+  const priced = rows.filter((row) => row.fields.final_completed_price.status === 'valid');
+  const totalRevenue = priced.reduce((sum, row) => sum + Number(row.fields.final_completed_price.value), 0);
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return {
+    classification: 'RETROSPECTIVE_FINAL_PRICE_ONLY', pricedJobs: priced.length,
+    unclassifiedJobs: rows.length - priced.length,
+    percentileMethod: 'Linear interpolation at (n - 1) * p on ascending valid values; round summaries to two decimals.',
+    segments: PRICE_SEGMENTS.map((name) => {
+      const group = priced.filter((row) => retrospectivePriceSegment(Number(row.fields.final_completed_price.value)) === name);
+      const values = group.map((row) => Number(row.fields.final_completed_price.value));
+      const revenue = values.reduce((a, b) => a + b, 0);
+      const pairs = group.filter((row) => row.fields.projected_loads.status === 'valid' && row.fields.actual_loads.status === 'valid');
+      const differences = pairs.map((row) => Number(row.fields.projected_loads.value) - Number(row.fields.actual_loads.value));
+      const summaries = (['stairs', 'heavy_items', 'demo_required', 'carry_distance_ordinal', 'actual_workers'] as Field[]).map((field) => {
+        const counts: Record<Status, number> = { valid: 0, absent_header: 0, blank: 0, invalid: 0, conflict: 0 };
+        const levels: Record<string, number> = {};
+        for (const row of group) {
+          const cell = row.fields[field];
+          counts[cell.status] += 1;
+          if (cell.status === 'valid') levels[String(cell.value)] = (levels[String(cell.value)] ?? 0) + 1;
+        }
+        return { field, denominator: group.length, validDenominator: counts.valid, counts, levels };
+      });
+      const suppressed = group.length > 0 && group.length < 5;
+      return {
+        name, jobs: group.length, pricedJobPercentage: priced.length ? round(100 * group.length / priced.length) : null,
+        revenue: suppressed ? null : round(revenue), revenuePercentage: suppressed || totalRevenue === 0 ? null : round(100 * revenue / totalRevenue),
+        finalPrice: suppressed ? null : distribution(values), smallSample: group.length < 10, priceSummarySuppressed: suppressed,
+        loadDiscrepancy: { pairedRecords: pairs.length, unavailableRecords: group.length - pairs.length,
+          estimatedMinusActual: pairs.length >= 5 ? distribution(differences) : null,
+          meanAbsoluteDifference: pairs.length >= 5 ? distribution(differences.map(Math.abs)).mean : null,
+          summarySuppressed: pairs.length > 0 && pairs.length < 5, unitComparability: 'UNVERIFIED' },
+        characteristics: summaries
+      };
+    })
+  };
 }
 
 export function historicalDiagnostics(rows: Record<string, string>[]) {
@@ -125,6 +186,15 @@ export function historicalDiagnostics(rows: Record<string, string>[]) {
     signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
   }
   const duplicateSizes = [...signatures.values()].filter((n) => n > 1);
+  const completionDateAliasDiagnostics = {
+    absentHeaderRows: adaptedRows.filter((row) => row.dateAliases.absent).length,
+    allBlankRows: fields.completion_date.blank,
+    rowsWithBlankAliases: adaptedRows.filter((row) => row.dateAliases.blankAliases > 0).length,
+    rowsWithInvalidAliases: adaptedRows.filter((row) => row.dateAliases.invalidAliases > 0).length,
+    equivalentNormalizedDateRows: adaptedRows.filter((row) => row.dateAliases.equivalentNormalizedDates).length,
+    conflictingPopulatedDateRows: adaptedRows.filter((row) => row.dateAliases.conflictingPopulatedDates).length,
+    resolvedWithBlankAliasRows: adaptedRows.filter((row) => row.dateAliases.resolvedWithBlankAlias).length
+  };
   // Never return mapped values or row-level diagnostics from the aggregate interface.
   return {
     returnedRows: rows.length, formatValidHistoricalRows,
@@ -132,9 +202,11 @@ export function historicalDiagnostics(rows: Record<string, string>[]) {
     descriptiveUsableRows: adaptedRows.filter((row) => Object.values(row.fields).some((cell) => cell.status === 'valid')).length,
     verifiedPreQuoteRows: 0, genuineQuoteEvaluationRows: 0,
     unknownQuoteTimeProvenanceRows: rows.length, fields,
+    completionDateAliasDiagnostics,
     completionDateCoverage: { records: completionDates.length, earliest: completionDates[0] ?? null, latest: completionDates.at(-1) ?? null },
     duplicateCandidates: { assessedRecords: coreValid, status: coreValid ? 'ASSESSED_MAPPED_FIELDS_ONLY' : 'NOT_ASSESSABLE', groups: duplicateSizes.length, records: duplicateSizes.reduce((a, b) => a + b, 0), excessRecords: duplicateSizes.reduce((a, b) => a + b - 1, 0), removed: 0 },
     finalPrice: distribution(numericValues('final_completed_price')),
+    retrospectivePriceSegments: retrospectiveSegments(adaptedRows),
     recordedLoadDifference: { pairedRecords: paired.length, estimatedMinusActual: distribution(differences), meanAbsoluteDifference: distribution(differences.map(Math.abs)).mean, unitComparability: 'UNVERIFIED', interpretation: 'Recorded-number differences only; not capacity-normalized load error or pre-quote accuracy.' },
     characteristics: { stairs: buckets('stairs'), carryOrdinal: buckets('carry_distance_ordinal'), heavyMaterials: buckets('heavy_items'), demolition: buckets('demo_required') },
     serviceType: { status: 'UNVERIFIED_SOURCE', usableRecords: 0, reason: 'No source service-type field/category provenance confirmed for this retrieval; no arbitrary categories published.' },
