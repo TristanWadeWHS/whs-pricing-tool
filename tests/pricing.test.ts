@@ -28,12 +28,12 @@ describe('priceJob regression baseline', () => {
     expect(pricing.adjustmentNotes).toContain('Cardboard-only discount applied');
   });
 
-  it('keeps difficulty, heavy-material, hidden-debris, carry, and stairs adjustments unchanged', () => {
+  it('retains explicit carry/stairs only, not unsupported generic risk adjustments', () => {
     const pricing = priceJob(
       sampleInputs({ carryDistance: 'long', stairs: 'heavy' }),
       sampleAnalysis({ heavyDebrisRisk: 'high', hiddenDebrisRisk: 'high', difficulty: 'hard' })
     );
-    expect(pricing.adjustments).toBe(500);
+    expect(pricing.adjustments).toBe(190);
   });
 
   it('does not use worker count in the current pricing formula', () => {

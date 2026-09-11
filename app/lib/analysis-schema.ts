@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { shadowEvidenceSchema, type ShadowEvidence } from './shadow-schema';
 
 export const riskLevelSchema = z.enum(['low', 'medium', 'high']);
 export const difficultySchema = z.enum(['easy', 'medium', 'hard']);
@@ -24,7 +25,8 @@ export const visionAnalysisSchema = z.object({
   questionsToAsk: z.array(z.string().min(1).max(220)).max(20)
 }).strict();
 
-export type VisionAnalysis = z.infer<typeof visionAnalysisSchema>;
+export const previewAnalysisSchema = visionAnalysisSchema.extend({ shadow: shadowEvidenceSchema.nullable() });
+export type VisionAnalysis = z.infer<typeof visionAnalysisSchema> & { shadow?: ShadowEvidence | null };
 
 export function parseVisionAnalysis(value: unknown) {
   return visionAnalysisSchema.safeParse(value);

@@ -1,4 +1,5 @@
 import { VisionAnalysis } from './analysis-schema';
+import { reconcilePricingFacts, type PricingFacts } from './pricing-facts';
 
 export type JobInputs = {
   distanceTier: 'under25' | '25to40' | '40to65';
@@ -9,7 +10,7 @@ export type JobInputs = {
   notes: string;
 };
 
-export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
+export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, reconciled?: PricingFacts) {
   const minimums = { under25: 130, '25to40': 145, '40to65': 175 };
   const minPrice = minimums[inputs.distanceTier];
 
@@ -22,6 +23,7 @@ export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
   }
 
   const loadPercent = Math.max(10, Math.min(200, rawLoadPercent));
+  const facts = reconciled ?? reconcilePricingFacts(inputs, { ...analysis, estimatedLoadPercent: loadPercent });
   let base = Math.round((loadPercent / 100) * whsFullLoadPrice);
 
   base = Math.max(base, minPrice);
@@ -29,35 +31,19 @@ export function priceJob(inputs: JobInputs, analysis: VisionAnalysis) {
   let adjustments = 0;
   const adjustmentNotes: string[] = [];
 
-  if (analysis.heavyDebrisRisk === 'medium') {
+  if (facts.handling.level === 'medium') {
     adjustments += 50;
-    adjustmentNotes.push('Medium heavy/debris risk adjustment');
+    adjustmentNotes.push('Medium handling: one person requires handling equipment');
   }
 
-  if (analysis.heavyDebrisRisk === 'high') {
+  if (facts.handling.level === 'high') {
     adjustments += 125;
-    adjustmentNotes.push('High heavy/demo/concrete risk adjustment');
+    adjustmentNotes.push('High handling: two or more people required');
   }
 
-  if (analysis.hiddenDebrisRisk === 'medium') {
-    adjustments += 35;
-    adjustmentNotes.push('Possible hidden debris risk adjustment');
-  }
-
-  if (analysis.hiddenDebrisRisk === 'high') {
-    adjustments += 85;
-    adjustmentNotes.push('High hidden debris risk adjustment');
-  }
-
-  if (analysis.difficulty === 'medium') {
-    adjustments += 35;
-    adjustmentNotes.push('Medium labor difficulty adjustment');
-  }
-
-  if (analysis.difficulty === 'hard') {
-    adjustments += 100;
-    adjustmentNotes.push('Hard labor/access adjustment');
-  }
+  // Routine labor is in the base. Uncertainty is not extra scope or a charge.
+  // Exceptional tasks have no approved task-specific rate; review instead of
+  // repurposing the former generic $100 hard-labor/access surcharge.
 
   if (inputs.carryDistance === 'medium') {
     adjustments += 40;

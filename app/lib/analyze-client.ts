@@ -1,7 +1,21 @@
 import { IMAGE_TOO_LARGE_MESSAGE } from './estimate-limits';
+import type { ShadowDiagnostics } from './shadow-diagnostics';
+import type { ClarificationAnswer } from './clarification';
+import type { PriceDriver } from './internal-estimate';
 
 export type Result = {
-  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
+  diagnostics?: ShadowDiagnostics;
+  status?: 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible' | 'clarification_required';
+  clarification?: { token: string; questions: Array<{ id: string; text: string }>; history: ClarificationAnswer[];
+    round: number; optional: boolean; canSkip: boolean } | null;
+  estimateKind?: 'provisional' | 'quote_candidate' | 'withheld';
+  firmQuoteEligible?: boolean;
+  estimateLabel?: string;
+  assumptions?: string[];
+  priceDrivers?: PriceDriver[];
+  loadUnits?: { percent: number; cubicYards: number; trailerEquivalents: number; volumeOnlyTrips: number; trailerCubicYards: number };
+  priceWithheld?: boolean;
+  analysisConfidence?: { score: number; scale: '1-100'; source: 'model_reported'; calibrated: false };
   statusReasons?: string[];
   confidenceThreshold?: number;
   analysis: any;
@@ -10,6 +24,14 @@ export type Result = {
   error?: string;
   errorCode?: string;
 };
+
+export function canDisplayEstimate(result: Result | null) {
+  const score = result?.analysis?.confidencePercent;
+  return Boolean(result?.analysis && result?.pricing && !result.priceWithheld && result.status !== 'analysis_failed'
+    && (result.estimateKind === 'provisional' || result.estimateKind === 'quote_candidate')
+    && typeof score === 'number' && Number.isFinite(score) && score >= 1 && score <= 100
+    && Number.isFinite(result.pricing.suggestedQuote) && typeof result.pricing.recommendedRange === 'string');
+}
 
 export function failedResult(error: string, errorCode: string): Result {
   return {
