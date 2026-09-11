@@ -4,7 +4,7 @@ import { proxy } from '../../../proxy';
 import { currentReferenceScope, resolveHistoricalReference } from '../../lib/historical-reference';
 
 export const runtime = 'nodejs';
-const requestSchema = z.object({ stairs: z.enum(['none', 'some', 'heavy']) }).strict();
+const requestSchema = z.object({ stairs: z.enum(['none', 'some', 'heavy']), projectedLoads: z.number().min(0.1).max(10).nullable().optional() }).strict();
 const headers = { 'Cache-Control': 'private, no-store' };
 
 export async function POST(request: NextRequest) {
@@ -31,10 +31,10 @@ export async function POST(request: NextRequest) {
     }
     text += decoder.decode();
     const input = requestSchema.parse(JSON.parse(text));
-    // No Sheet retrieval is warranted until the app/history scope crosswalk exists.
-    // This loader deliberately fails closed even if prerequisites change accidentally.
-    const result = await resolveHistoricalReference(currentReferenceScope(input.stairs), async () => {
-      throw new Error('Verified historical scope source is not configured.');
+    // Scope prerequisites are checked before the cached, read-only provider runs.
+    const result = await resolveHistoricalReference(currentReferenceScope(input.stairs, input.projectedLoads), async () => {
+      const { loadHistoricalReferences } = await import('../../lib/historical-reference-source');
+      return loadHistoricalReferences();
     });
     return NextResponse.json(result, { headers });
   } catch {

@@ -22,11 +22,12 @@ export function abstain(reason: string, status: 'abstained' | 'unavailable' = 'a
   return { status, matchedCount: null, median: null, p25: null, p75: null, reasons: [reason] };
 }
 
-export function currentReferenceScope(stairs: 'none' | 'some' | 'heavy'): ReferenceScope {
+export function currentReferenceScope(stairs: 'none' | 'some' | 'heavy', projectedLoads?: number | null): ReferenceScope {
   // Only stairs has a supported crosswalk today. Risk is not a heavy-material flag;
   // debris category is not demolition work, and carry/load units are not verified.
-  return { stairs: stairs !== 'none', scopeGroup: null, loadUnit: null,
-    projectedLoads: null, heavyMaterials: null, demolition: null };
+  return { stairs: stairs === 'none' ? false : stairs === 'some' || stairs === 'heavy' ? true : null, scopeGroup: null, loadUnit: null,
+    projectedLoads: typeof projectedLoads === 'number' && Number.isFinite(projectedLoads) && projectedLoads > 0 ? projectedLoads : null,
+    heavyMaterials: null, demolition: null };
 }
 
 export function hasComparableScope(scope: ReferenceScope) {
@@ -37,7 +38,7 @@ export function hasComparableScope(scope: ReferenceScope) {
 }
 
 export function matchHistoricalReference(scope: ReferenceScope, records: ReferenceRecord[]): HistoricalReferenceResult {
-  if (!hasComparableScope(scope)) return abstain('Comparable scope is unverified. Stairs alone cannot establish a meaningful historical match.');
+  if (!hasComparableScope(scope)) return abstain('Comparable scope is unverified. Stairs alone is insufficient; shared load capacity, service scope, and heavy-material/demolition mappings are not verified.');
   const matches = records.filter((row) => hasComparableScope(row.scope)
     && row.scope.scopeGroup === scope.scopeGroup && row.scope.loadUnit === scope.loadUnit
     && row.scope.projectedLoads === scope.projectedLoads && row.scope.stairs === scope.stairs

@@ -215,7 +215,7 @@ export default function Home() {
             <span>{result.pricing.recommendedRange}</span>
           </div>
 
-          <HistoricalReference stairs={result.inputs?.stairs} />
+          <HistoricalReference stairs={result.inputs?.stairs} projectedLoads={result.analysis.estimatedLoadCount} />
 
           <div className="summaryBox">
             <h3>Estimate Quality</h3>

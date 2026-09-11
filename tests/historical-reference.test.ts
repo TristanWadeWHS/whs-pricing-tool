@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { currentReferenceScope, matchHistoricalReference, resolveHistoricalReference, type ReferenceScope } from '../app/lib/historical-reference';
 import { POST } from '../app/api/historical-reference/route';
+vi.mock('../app/lib/historical-reference-source', () => ({ loadHistoricalReferences: vi.fn(() => { throw new Error('Unexpected live read'); }) }));
 
 const scope: ReferenceScope = { scopeGroup: 'synthetic-verified-group', loadUnit: 'synthetic-shared-unit',
   projectedLoads: 1, stairs: false, heavyMaterials: false, demolition: false };

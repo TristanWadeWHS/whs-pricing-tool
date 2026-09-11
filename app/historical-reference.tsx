@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { abstain, type HistoricalReferenceResult } from './lib/historical-reference';
 
-export function HistoricalReference({ stairs }: { stairs: 'none' | 'some' | 'heavy' }) {
+export function HistoricalReference({ stairs, projectedLoads }: { stairs: 'none' | 'some' | 'heavy'; projectedLoads?: number }) {
   const [result, setResult] = useState<HistoricalReferenceResult | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -11,7 +11,7 @@ export function HistoricalReference({ stairs }: { stairs: 'none' | 'some' | 'hea
     const timer = setTimeout(() => controller.abort(), 8000);
     setResult(null);
     fetch('/api/historical-reference', { method: 'POST', credentials: 'include', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stairs }), signal: controller.signal })
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stairs, projectedLoads }), signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error('unavailable');
         const data = await response.json();
@@ -25,13 +25,13 @@ export function HistoricalReference({ stairs }: { stairs: 'none' | 'some' | 'hea
       .catch(() => { if (active) setResult(abstain('Historical data is unavailable. The calculated estimate is unchanged.', 'unavailable')); })
       .finally(() => clearTimeout(timer));
     return () => { active = false; clearTimeout(timer); controller.abort(); };
-  }, [stairs]);
+  }, [stairs, projectedLoads]);
   const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   return <section className="historicalReference" aria-label="Historical reference" aria-live="polite">
     <h3>Historical reference <small>Internal advisory</small></h3>
     {!result ? <p>Checking historical scope...</p> : <>
       {result.status === 'matched' ? <dl className="historicalStats">
-        <div><dt>Matched priced jobs</dt><dd>{result.matchedCount}</dd></div>
+        <div><dt>Matched priced records</dt><dd>{result.matchedCount}</dd></div>
         <div><dt>Median completed price</dt><dd>{money(result.median)}</dd></div>
         <div><dt>Middle 50%</dt><dd>{money(result.p25)} to {money(result.p75)}</dd></div>
       </dl> : <p><strong>{result.status === 'abstained' ? 'No reliable comparison available' : 'Historical reference unavailable'}</strong></p>}
