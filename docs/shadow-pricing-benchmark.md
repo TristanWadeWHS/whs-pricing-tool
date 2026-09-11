@@ -14,26 +14,32 @@ benchmark only. The Sheet and those historical migration records are unchanged.
 | Source | Adapter canonical field | Meaning / boundary |
 | --- | --- | --- |
 | Date | completion_date | Job completion date, never estimate date |
-| Amount | revenue | Outcome; treatment of tips/taxes remains unknown |
+| Amount | final_completed_price | Final customer price after the job; target only, never predictor |
 | Net Profit | profit | Outcome; cost accounting definition remains unknown |
-| Estimated Loads / Estimated_Loads | projected_loads | Projected loads recorded before job; pre-quote timing unconfirmed |
+| Estimated Loads / Estimated_Loads / Projected Loads | projected_loads | Estimated load count recorded before job; pre-quote timing unconfirmed |
+| Actual Loads / actual_load_count | actual_loads | Completed load count; common capacity unit unverified |
 | Workers / workers | actual_workers | Actual crew used, never planned crew |
 | Stairs | stairs | Binary characteristic; pre-quote timing unconfirmed |
 | Carry distance / Carry Distance / Carry_Distance / carry_distance | carry_distance_ordinal | Lower means less walking; units, range and tier thresholds unknown |
-| Heavy Items / Heavy_Items | heavy_items | Binary characteristic; pre-quote timing unconfirmed |
+| Heavy Items / Heavy_Items | heavy_items | Binary heavy-material characteristic; pre-quote timing unconfirmed |
 | Demolition | demo_required | Binary requirement; pre-quote timing unconfirmed |
 
-Canonical adapter fields take precedence by header presence, including blanks.
+Aliases are explicitly enumerated, then case/space/underscore normalized.
+All present aliases are checked together. Different parsed values, blank versus
+populated aliases, or invalid duplicate aliases produce a conflict and null value;
+none is silently selected. Equivalent parsed values are accepted. Repeated
+identical source headers block lossy conversion before analysis.
 Dates accept YYYY-MM-DD or M/D/YYYY. Binary formats accept yes/no, true/false,
 y/n or 1/0 (case-insensitive); other encodings are invalid, not guessed. Missing
 values remain null. Ordinal carry accepts finite numeric levels without assumed
 endpoints, units, equal spacing or conversion to short/long or feet/meters.
 Actual workers must be a nonnegative integer; projected loads nonnegative.
-Revenue/profit can be signed historical outcomes and never enter predictors.
-Revenue is not automatically relabeled as final_completed_price.
+Final customer price/profit are signed historical outcomes and never predictors.
+Tristan's latest confirmation explicitly permits Amount as final_completed_price.
+No tips/taxes treatment or profit cost accounting definition is inferred.
 
 The adapter distinguishes absent headers, blank cells, invalid encodings and
-valid encodings for each field. formatValidHistoricalRows means all nine mapped
+valid encodings and conflicts for each field. formatValidHistoricalRows means all ten mapped
 field formats are valid, not that incomplete rows are worthless or economically
 verified. Historical validity does not establish quote-time eligibility.
 Aggregate output contains no mapped row values or identifying details.
@@ -124,6 +130,33 @@ row-derived hashes or credentials are printed or committed.
 Manifest reports aggregate counts/dates and code/method versions. Dirty code
 is explicitly labeled. It does not authenticate individual source records.
 
+## Descriptive Retrieval Protocol
+
+Run the existing CLI with --descriptive-only for the single authorized read.
+This path does not invoke any model fitter. It reports returned data-row slots
+(excluding header), blank slots, and nonempty records; allocated empty worksheet
+capacity is not counted. Date coverage uses completion dates explicitly.
+Valid historical core records have a parseable completion date and final price.
+Complete-format records have all ten mapped fields valid. Descriptive-usable
+records have at least one valid mapped field; analyses use their own valid subsets.
+Unknown provenance never removes records from these descriptive subsets.
+Verified-pre-quote and genuine-evaluation counts remain zero for this source;
+status is BENCHMARK_BLOCKED_PROVENANCE, decision NO_MODEL_READY.
+
+Report per-field missing/invalid/conflict counts, final-price distribution,
+paired projected-minus-actual numeric differences and absolute differences.
+These are recorded-number discrepancies only, not capacity-normalized physical
+load error or pre-quote accuracy: common trailer capacity/units are undocumented.
+Reported percentiles use linear interpolation. Duplicate candidates are exact
+matches of confirmed mapped values/statuses among date/price-valid records;
+they may be distinct jobs and are counted without deduplication. No hashes or
+identifiers are exported. Breakdowns use recorded binaries and ordinal carry
+levels without inventing tiers; price statistics need at least five priced records
+per group. Ordinal values are syntax-validated, not range-certified.
+Service-type breakdown remains unavailable until a source field/category
+provenance is verified; arbitrary source text is never published as a category.
+No additional field-definition confirmation is being requested here.
+
 ## Decision
 
 NO_MODEL_READY remains the only automatic decision in this phase.
@@ -132,14 +165,14 @@ counts by date, reported revenue/profit summaries with accounting caveats,
 actual-crew distributions, projected-load and job-characteristic distributions.
 Ordinal carry supports ordered summaries, not physical distances or assumed
 equal-spaced effects. These summaries cannot demonstrate pre-quote predictive
-performance, optimal pricing or economic underpricing. This correction runs no
-live analysis and generates no new metrics or rankings.
+performance, optimal pricing or economic underpricing. The authorized descriptive
+retrieval is recorded separately; no quote-prediction metrics or rankings result.
 
-Outstanding confirmations: were projected loads and each characteristic recorded
-before the customer received the quote, and were original values preserved?
-Is a true quote/estimate date available? Is planned crew recorded separately?
-What are carry's allowed levels and meanings? Which binary encodings occur?
-Does revenue include tips/taxes/refunds, and what costs define reported profit?
+Remaining limitations: pre-quote timing is UNKNOWN; no estimate date is supplied
+by completion Date, actual crew is not planned crew, and ordinal carry has no
+approved tier thresholds. Common load-capacity units, verified service-type
+source categories and profit cost categories are not documented. These are
+limitations, not repeated requests to confirm definitions already provided.
 Earlier metrics/rankings are superseded and invalid methodology evidence.
 Collect more validated completed outcomes, verify estimate-time provenance,
 improve segmentation and assess sufficient independent time-aware holdouts.

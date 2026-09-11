@@ -1,5 +1,102 @@
 # Shadow Pricing Benchmark Results
 
+## Updated 101-Record Retrieval
+
+One authorized read succeeded after 23 affected tests and typecheck passed.
+No retry, Sheet write, model fitting or quote-prediction benchmark occurred.
+The following are new measured aggregates, not the prior 70-record findings.
+Source: 21f1c342e9f36130d6468125c39ef9726752c86d plus historical-v4 working changes.
+Worksheet identity was checked in the same request. Only redacted aggregates
+were output; temporary credential buffers and raw rows were cleared.
+
+- Returned data-row slots: 101 (header excluded); nonempty records: 101; blank slots: 0.
+- Valid historical core (unambiguous completion date AND final price): 0.
+- All-ten-field format-valid records: 0.
+- Descriptive-usable records (at least one valid mapped field): 101.
+- Final-price analysis: 101; profit format-valid: 101.
+- Paired projected/actual load analysis: 92.
+- Each recorded binary/carry characteristic has 92 valid values.
+- Verified pre-quote records: 0; genuine quote-evaluation records: 0.
+- Unknown pre-quote provenance: 101; decision: NO_MODEL_READY.
+- Benchmark status: BENCHMARK_BLOCKED_PROVENANCE.
+
+### Field Quality
+
+| Field | Valid | Blank | Invalid format | Conflicting aliases | Absent header |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| completion_date | 0 | 0 | 0 | 101 | 0 |
+| final_completed_price | 101 | 0 | 0 | 0 | 0 |
+| profit | 101 | 0 | 0 | 0 | 0 |
+| projected_loads | 92 | 9 | 0 | 0 | 0 |
+| actual_loads | 92 | 9 | 0 | 0 | 0 |
+| actual_workers | 92 | 9 | 0 | 0 | 0 |
+| stairs | 92 | 9 | 0 | 0 | 0 |
+| carry_distance_ordinal | 92 | 9 | 0 | 0 | 0 |
+| heavy_items | 92 | 9 | 0 | 0 | 0 |
+| demo_required | 92 | 9 | 0 | 0 | 0 |
+
+The date conflict occurs across present completion-date aliases; aggregates do
+not identify whether this is blank-versus-populated or disagreeing populated
+values. We did not choose a source silently. Accepted completion-date coverage
+is unavailable (0 resolved dates); no earlier date range is reused.
+Duplicate candidates cannot be assessed under the date/price-core criterion:
+0 records assessed. The zero candidate counter is NOT evidence of no duplicates.
+No records were deduplicated. These limitations need separate conflict resolution
+before date-based descriptive analysis; no extra retrieval was attempted.
+
+### Final Customer Prices
+
+101 prices: minimum $80; 25th percentile $145; median $200; 75th percentile $480;
+maximum $13,800; mean $703.32. These are recorded final prices, not optimal prices.
+Profit cost categories remain unspecified; no margin interpretation is made.
+
+### Recorded Load Differences
+
+92 paired numeric values. Projected minus actual: mean -0.06; median 0;
+25th/75th percentiles 0/0; range -2.5 to 0. Mean absolute difference: 0.06.
+Values are rounded to two decimals. Capacity-unit comparability is UNVERIFIED.
+These are arithmetic differences in recorded numbers, not established physical
+load error, pre-quote model accuracy, or confidence percentages.
+
+### Recorded Characteristics
+
+| Characteristic | Recorded value | Records | Median final price |
+| --- | --- | ---: | ---: |
+| stairs | true | 5 | 845 |
+| stairs | false | 87 | 200 |
+| stairs | blank | 9 | 320 |
+| carryOrdinal | 5 | 7 | 1200 |
+| carryOrdinal | 3 | 10 | 687.5 |
+| carryOrdinal | 4 | 4 | suppressed (<5) |
+| carryOrdinal | 1 | 51 | 200 |
+| carryOrdinal | 2 | 12 | 200 |
+| carryOrdinal | blank | 9 | 320 |
+| carryOrdinal | 0 | 8 | 152.5 |
+| heavyMaterials | true | 26 | 625 |
+| heavyMaterials | false | 66 | 200 |
+| heavyMaterials | blank | 9 | 320 |
+| demolition | false | 85 | 200 |
+| demolition | true | 7 | 1050 |
+| demolition | blank | 9 | 320 |
+
+Carry levels observed: 0, 1, 2, 3, 4, 5; these are ordinal levels only, not
+physical units or approved tier thresholds. Counts do not certify allowed range.
+Binary formats parsed successfully for 92 records per binary field.
+Groups with fewer than five priced records have price summaries suppressed.
+These marginal descriptive relationships are not causal or predictive evidence.
+Service-type breakdown is unavailable: no source field/category provenance is
+verified for this retrieval. No arbitrary source text was published.
+No tiers or rankings were generated.
+
+### Remaining Boundaries
+
+Quote timing remains UNKNOWN despite before-job recording. Completion Date is
+not an estimate date; actual workers/loads, final customer price and profit are
+outcomes, never quote-time predictors. No planned crew is invented. Carry tier
+thresholds, common load capacity and verified service categories are unavailable.
+Quantile regression remains disabled. Production behavior and Sheet values
+are unchanged. Existing historical sections below remain archived checkpoints.
+
 ## 2026-09-10 Adapter Correction: No New Live Run
 
 Tristan confirmed Date is completion date, Workers actual crew, Amount revenue,

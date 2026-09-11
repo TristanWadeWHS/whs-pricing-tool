@@ -668,6 +668,8 @@ function privacyGuarantee() {
 
 export function rowsFromSheetValues(values: string[][]): ShadowPricingRawRecord[] {
   const [headers = [], ...rows] = values;
+  const names = headers.map((header) => String(header ?? '').trim()).filter(Boolean);
+  if (new Set(names).size !== names.length) throw new Error('Duplicate identical source headers; refusing lossy row conversion.');
   return rows
     .filter((row) => row.some((cell) => String(cell ?? '').trim()))
     .map((row) =>
@@ -683,7 +685,7 @@ function parseServiceAccountJson(raw: string): ServiceAccountJson {
   return parsed;
 }
 
-export async function readShadowBenchmarkRows(env = process.env): Promise<ShadowPricingRawRecord[]> {
+export async function readShadowBenchmarkRows(env = process.env, onCounts?: (counts: { returnedDataRows: number; nonemptyRecords: number; blankDataRows: number }) => void): Promise<ShadowPricingRawRecord[]> {
   if (env.GOOGLE_SPREADSHEET_ID !== EXPECTED_SPREADSHEET_ID) {
     throw new Error('Configured spreadsheet does not match the approved historical benchmark source.');
   }
@@ -715,7 +717,10 @@ export async function readShadowBenchmarkRows(env = process.env): Promise<Shadow
       throw new Error('Authorized worksheet identity mismatch.');
     }
     const values = sheet.data?.[0]?.rowData?.map((row) => (row.values ?? []).map((cell) => cell.formattedValue ?? '')) ?? [];
-    return rowsFromSheetValues(values);
+    const records = rowsFromSheetValues(values);
+    const returnedDataRows = Math.max(0, values.length - 1);
+    onCounts?.({ returnedDataRows, nonemptyRecords: records.length, blankDataRows: returnedDataRows - records.length });
+    return records;
   } finally {
     delete serviceAccount.private_key;
     delete serviceAccount.client_email;
