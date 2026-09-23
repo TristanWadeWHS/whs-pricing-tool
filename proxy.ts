@@ -1,9 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  AI_PRICER_SESSION_COOKIE,
+  isValidAiPricerSession,
+  WHS_SSO_EXCHANGE_PATH
+} from './app/lib/whs-sso';
 
 export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   if (isPublicAsset(pathname)) {
     return NextResponse.next();
+  }
+
+  if (pathname === WHS_SSO_EXCHANGE_PATH && req.method === 'POST') {
+    return NextResponse.next();
+  }
+
+  const portalSession = req.cookies.get(AI_PRICER_SESSION_COOKIE)?.value;
+  if (isValidAiPricerSession(portalSession)) {
+    return authorizedResponse();
   }
 
   const configuredToken = process.env.INTERNAL_ACCESS_TOKEN;
@@ -16,9 +30,7 @@ export function proxy(req: NextRequest) {
     return protectedResponse('Unauthorized', 401, true);
   }
 
-  const response = NextResponse.next();
-  response.headers.set('cache-control', 'no-store');
-  return response;
+  return authorizedResponse();
 }
 
 export const config = {
@@ -79,4 +91,10 @@ function protectedResponse(body: string, status: number, challenge = false) {
   }
 
   return new NextResponse(body, { status, headers });
+}
+
+function authorizedResponse() {
+  const response = NextResponse.next();
+  response.headers.set('cache-control', 'no-store');
+  return response;
 }
