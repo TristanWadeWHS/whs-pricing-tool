@@ -134,10 +134,22 @@ describe('photo optimization', () => {
     expect(result).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.failed });
   });
 
-  it('rejects more than five selected photos before optimization work', async () => {
-    const result = await optimizePhotoSelection(Array.from({ length: 6 }, (_, index) => file(`p${index}.jpg`, 'image/jpeg', 1024)), adapterFor());
+  it('optimizes ten photos within the unchanged combined budget', async () => {
+    const result = await optimizePhotoSelection(Array.from({ length: 10 }, (_, index) => file(`p${index}.jpg`, 'image/jpeg', 1024)), adapterFor());
+    expect(result.ok).toBe(true);
+    if (result.ok) { expect(result.photos).toHaveLength(10); expect(result.totalBytes).toBeLessThanOrEqual(SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES); }
+    expect(SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES).toBe(Math.floor(3.5 * 1024 * 1024));
+  });
 
-    expect(result).toEqual({ ok: false, error: 'Upload no more than 5 photos.' });
+  it('rejects ten photos that cannot fit without weakening quality floors', async () => {
+    const result = await optimizePhotoSelection(Array.from({ length: 10 }, (_, index) => file(`p${index}.jpg`, 'image/jpeg', 1024)), adapterFor({ minimumEncodedBytes: 500 * 1024 }));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects more than ten selected photos before optimization work', async () => {
+    const result = await optimizePhotoSelection(Array.from({ length: 11 }, (_, index) => file(`p${index}.jpg`, 'image/jpeg', 1024)), adapterFor());
+
+    expect(result).toEqual({ ok: false, error: 'Upload no more than 10 photos.' });
   });
 
   it('generates bounded targets without an infinite compression loop', () => {

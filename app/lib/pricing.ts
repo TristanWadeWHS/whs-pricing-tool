@@ -6,7 +6,7 @@ export type JobInputs = {
   jobType: string;
   carryDistance: 'curbside' | 'short' | 'medium' | 'long';
   stairs: 'none' | 'some' | 'heavy';
-  workers: number;
+  workers: number | null;
   notes: string;
 };
 

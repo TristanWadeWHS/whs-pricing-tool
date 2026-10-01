@@ -1,6 +1,7 @@
 import {
   IMAGE_TOO_LARGE_MESSAGE,
   MAX_ESTIMATE_IMAGE_BYTES,
+  MAX_ESTIMATE_PHOTOS,
   SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES
 } from './estimate-limits';
 
@@ -12,7 +13,7 @@ export const OPTIMIZATION_MESSAGES = {
 };
 
 export const PHOTO_OPTIMIZATION_LIMITS = {
-  maxPhotos: 5,
+  maxPhotos: MAX_ESTIMATE_PHOTOS,
   maxOriginalBytes: 25 * 1024 * 1024,
   totalProcessedBytes: SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES,
   maxProcessedImageBytes: MAX_ESTIMATE_IMAGE_BYTES,
