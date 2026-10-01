@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
-import { JobInputs } from './pricing';
+import { FULL_LOAD_RATE, JobInputs, selectedJobTypes } from './pricing';
 import { VisionAnalysis, visionAnalysisSchema } from './analysis-schema';
 import { QUESTION_TEXT, type ClarificationAnswer } from './clarification';
 
@@ -85,7 +85,7 @@ WHS handling definitions: LOW means one person carries easily; MEDIUM means one 
 
 Business context:
 - Trailer capacity is 12 cubic yards.
-- Full-load baseline is $450, but do not calculate the quote.
+- Full-load baseline is $${FULL_LOAD_RATE}, but do not calculate the quote.
 - Distinguish observed photo facts from employee-provided facts, assumptions, uncertainty, warnings, and follow-up questions.
 - Treat hidden material as uncertainty unless it is visible or explicitly provided.
 - Flag concrete, dirt, tile, drywall, appliances, demolition debris, cinder blocks, roofing, or very dense materials.
@@ -95,6 +95,7 @@ Employee inputs:
 ${JSON.stringify({
     distanceTier: inputs.distanceTier,
     jobType: inputs.jobType,
+    jobTypes: selectedJobTypes(inputs),
     carryDistance: inputs.carryDistance,
     stairs: inputs.stairs,
     workers: inputs.workers,

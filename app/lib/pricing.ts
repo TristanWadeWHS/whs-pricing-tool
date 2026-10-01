@@ -4,18 +4,24 @@ import { reconcilePricingFacts, type PricingFacts } from './pricing-facts';
 export type JobInputs = {
   distanceTier: 'under25' | '25to40' | '40to65';
   jobType: string;
+  jobTypes?: string[];
   carryDistance: 'curbside' | 'short' | 'medium' | 'long';
   stairs: 'none' | 'some' | 'heavy';
   workers: number | null;
   notes: string;
 };
 
+export const FULL_LOAD_RATE = 550;
+export function selectedJobTypes(inputs: JobInputs) {
+  return inputs.jobTypes ?? [inputs.jobType];
+}
+
 export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, reconciled?: PricingFacts) {
   const minimums = { under25: 130, '25to40': 145, '40to65': 175 };
   const minPrice = minimums[inputs.distanceTier];
 
   const competitorFullLoadPrice = 650;
-  const whsFullLoadPrice = 450;
+  const whsFullLoadPrice = FULL_LOAD_RATE;
 
   const rawLoadPercent = Number(analysis.estimatedLoadPercent);
   if (!Number.isFinite(rawLoadPercent)) {
@@ -24,7 +30,7 @@ export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, reconciled
 
   const loadPercent = Math.max(10, Math.min(200, rawLoadPercent));
   const facts = reconciled ?? reconcilePricingFacts(inputs, { ...analysis, estimatedLoadPercent: loadPercent });
-  let base = Math.round((loadPercent / 100) * whsFullLoadPrice);
+  let base = (loadPercent / 100) * whsFullLoadPrice;
 
   base = Math.max(base, minPrice);
 
@@ -65,7 +71,7 @@ export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, reconciled
     adjustmentNotes.push('Heavy stairs adjustment');
   }
 
-  if (inputs.jobType.toLowerCase().includes('cardboard')) {
+  if (selectedJobTypes(inputs).length === 1 && selectedJobTypes(inputs)[0] === 'cardboard only') {
     adjustments -= 40;
     adjustmentNotes.push('Cardboard-only discount applied');
   }

@@ -16,8 +16,8 @@ describe('WHS evidence-based Preview adjustments', () => {
     const inputs = sampleInputs({ notes: regressionNotes }); const analysis = fixed(); const facts = reconcilePricingFacts(inputs, analysis);
     expect(facts.handling.level).toBe('low'); expect(facts.hidden.state).toBe('resolved'); expect(facts.labor.state).toBe('routine_included');
     const pricing = priceJob(inputs, analysis, facts);
-    expect(pricing.baseLoadPrice).toBe(248); expect(pricing.adjustments).toBe(0); expect(pricing.suggestedQuote).toBe(255);
-    expect(pricing.recommendedRange).toBe('$215–$295'); expect(pricing.adjustmentNotes).toEqual([]);
+    expect(pricing.baseLoadPrice).toBe(302.5); expect(pricing.adjustments).toBe(0); expect(pricing.suggestedQuote).toBe(310);
+    expect(pricing.recommendedRange).toBe('$270–$350'); expect(pricing.adjustmentNotes).toEqual([]);
     expect(facts.load).toEqual({ percent: 55, cubicYards: 6.6, trailerEquivalents: 0.55, volumeOnlyTrips: 1, trailerCubicYards: 12 });
   });
   it('compares the exact preserved pricing code and new policy with identical synthetic inputs', () => {
@@ -26,9 +26,10 @@ describe('WHS evidence-based Preview adjustments', () => {
     runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports });
     const inputs = sampleInputs({ notes: regressionNotes }); const analysis = fixed();
     const before = exports.priceJob!(inputs, analysis); const after = priceJob(inputs, analysis);
-    expect(before.baseLoadPrice).toBe(after.baseLoadPrice); expect(before.adjustments).toBe(120);
+    expect(before.baseLoadPrice).toBe(248); expect(after.baseLoadPrice).toBe(302.5); expect(before.adjustments).toBe(120); expect(after.adjustments).toBe(0);
     expect(before.recommendedRange).toBe('$335–$415'); expect(before.suggestedQuote).toBe(375);
-    expect(before.suggestedQuote - after.suggestedQuote).toBe(120);
+    // Historic policy retained for comparison; the new authorized rate also changes the base.
+    expect(after.suggestedQuote).toBe(310);
   });
   it.each([
     ['One person can move the item but needs a dolly.', 'medium', 50],
@@ -78,6 +79,6 @@ describe('WHS evidence-based Preview adjustments', () => {
     const units = coreLoadUnits(percent); expect(units.trailerEquivalents).toBe(percent / 100);
     expect(units.cubicYards).toBeCloseTo(percent / 100 * 12); expect(units.volumeOnlyTrips).toBe(Math.ceil(percent / 100));
     expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: percent, assumptions: ['Already compacted.'] })).baseLoadPrice)
-      .toBe(Math.max(130, Math.round(percent / 100 * 450)));
+      .toBe(Math.max(130, percent / 100 * 550));
   });
 });

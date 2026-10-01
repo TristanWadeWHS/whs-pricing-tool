@@ -20,7 +20,8 @@ export function needsClarification(analysis: VisionAnalysis) {
   return analysis.confidencePercent / 100 < CLARIFICATION_THRESHOLD;
 }
 
-export function clarificationQuestions(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[] = [], photoCount = 0) {
+export function clarificationQuestions(analysis: VisionAnalysis, notes: string, answers: ClarificationAnswer[] = [], photoCount = 0,
+  essential: ClarificationAnswer['id'][] = []) {
   const signals = [...analysis.questionsToAsk, ...analysis.uncertaintyNotes, ...analysis.warnings].join(' ');
   const topics = [
     { id: 'hidden' as const, relevant: /hidden|underneath|behind|outside.*photo|additional.*(?:item|material)|out of frame/i,
@@ -33,14 +34,22 @@ export function clarificationQuestions(analysis: VisionAnalysis, notes: string, 
       answered: /\d+(?:\.\d+)?\s*(?:feet|foot|ft\b|inches|yards|cm\b|meters)/i }
   ];
   // Fixed actionable templates prevent model-generated prices/instructions leaking into this phase.
-  // Stairs, carry, planned workers and selected job type are already structured inputs.
+  // A suggested question alone is not evidence. Require scope-specific support.
+  const observations = [...analysis.observedFacts, ...analysis.visibleItems].filter((text) => !/^\s*(?:no |nothing |not any )/i.test(text)).join(' ');
+  const context = `${observations} ${notes}`;
+  const grounded = {
+    hidden: /occlud|obscur|blocks? (?:the )?view|out of frame|(?:additional|extra) (?:bags|items|debris|material).*(?:visible|present)|(?:items|debris|material).*(?:underneath|behind)/i.test(context),
+    contents: /(?:closed|sealed|opaque) (?:cardboard )?(?:box|bag|container)|contents (?:are )?(?:not visible|unknown|unclear)|(?:boxes|bags|containers) (?:contain|hold|are filled)/i.test(context),
+    dismantling: /bolts?|fasteners?|attached|fixed in place|dismantl|disassembl/i.test(context),
+    dimensions: /(?:dimensions|size|volume|scale|measurements?).*(?:unclear|unknown|unconfirmed|unmeasured)|(?:unclear|unknown|unmeasured).*(?:dimensions|size|volume)|no (?:size|scale) reference/i.test(context)
+  };
   const facts = reconcileClarificationFacts(notes, answers, analysis.shadow?.contradictions, photoCount);
   // Removal scope and dense contents affect loads/disposal first; then labor, then dimensions.
   const priority = { hidden: 4, contents: 3, dismantling: 2, dimensions: 1 };
   return topics.filter((topic) => {
     const fact = facts.find((entry) => entry.id === topic.id)!;
     if (fact.state === 'resolved' || fact.state === 'not_applicable') return false;
-    return fact.state === 'conflicting' || topic.relevant.test(signals);
+    return fact.state === 'conflicting' || essential.includes(topic.id) || (grounded[topic.id] && topic.relevant.test(signals));
   }).sort((a, b) => Number(answers.some((answer) => answer.id === a.id)) - Number(answers.some((answer) => answer.id === b.id))
     || priority[b.id] - priority[a.id]).slice(0, 2)
     .map(({ id }) => ({ id, text: id === 'hidden' && answers.some((a) => a.id === id)

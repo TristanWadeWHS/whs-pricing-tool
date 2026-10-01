@@ -1,5 +1,7 @@
 # Phase 2 guided estimator: Preview candidate
 
+This document records the preserved PR #11 baseline. The stacked refinement's authorized $550 rate, multiple job types, reset flow and maps-service blocker are documented in [phase-2-guided-refinement.md](phase-2-guided-refinement.md); those changes supersede the corresponding descriptions here.
+
 Not release-ready. Tristan's authenticated Preview test remains required.
 
 ## Verified baseline and dependency

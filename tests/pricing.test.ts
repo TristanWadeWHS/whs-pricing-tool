@@ -17,9 +17,12 @@ describe('priceJob regression baseline', () => {
   });
 
   it('calculates fractional, full, and multi-load base prices from the existing linear formula', () => {
-    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 50 })).baseLoadPrice).toBe(225);
-    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 100 })).baseLoadPrice).toBe(450);
-    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 200, estimatedLoadCount: 2 })).baseLoadPrice).toBe(900);
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 50 })).baseLoadPrice).toBe(275);
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 55 })).baseLoadPrice).toBe(302.5);
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 100 })).baseLoadPrice).toBe(550);
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 200, estimatedLoadCount: 2 })).baseLoadPrice).toBe(1100);
+    const first = priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 55 }));
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 55 }))).toEqual(first);
   });
 
   it('keeps cardboard behavior unchanged', () => {
@@ -44,7 +47,7 @@ describe('priceJob regression baseline', () => {
 
   it('clamps load percentage boundaries to the existing 10-200 range', () => {
     expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 0 })).baseLoadPrice).toBe(130);
-    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 250, estimatedLoadCount: 2.5 })).baseLoadPrice).toBe(900);
+    expect(priceJob(sampleInputs(), sampleAnalysis({ estimatedLoadPercent: 250, estimatedLoadCount: 2.5 })).baseLoadPrice).toBe(1100);
   });
 
   it('does not fabricate pricing from a missing load percentage fallback', () => {

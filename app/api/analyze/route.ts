@@ -4,7 +4,7 @@ import { priceJob } from '../../lib/pricing';
 import { validateEstimateForm } from '../../lib/request-validation';
 import { AnalysisError, analyzeJobPhotosWithOpenAI } from '../../lib/openai-analysis';
 import { buildCustomerMessage, determineQuoteStatus } from '../../lib/quote-status';
-import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, MAX_CLARIFICATION_ROUNDS, QUESTION_TEXT, verifyClarificationRound } from '../../lib/clarification';
+import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, MAX_CLARIFICATION_ROUNDS, verifyClarificationRound } from '../../lib/clarification';
 import { analysisConfidence } from '../../lib/analysis-confidence';
 import { safeShadowDiagnostics } from '../../lib/shadow-diagnostics';
 import { shadowPreviewEnabled } from '../../lib/shadow-schema';
@@ -76,9 +76,7 @@ export async function POST(req: NextRequest) {
 
     const diagnostics = shadowPreviewEnabled() ? safeShadowDiagnostics(inputs, analysis, answers, photos.length) : undefined;
     const assessment = assessInternalEstimate(inputs, analysis, answers, photos.length);
-    const pendingQuestions = clarificationQuestions({ ...analysis,
-      questionsToAsk: [...assessment.essentialQuestions.map((id) => QUESTION_TEXT[id]), ...analysis.questionsToAsk]
-    }, inputs.notes, answers, photos.length);
+    const pendingQuestions = clarificationQuestions(analysis, inputs.notes, answers, photos.length, assessment.essentialQuestions);
     const questions = (round?.round ?? 0) < MAX_CLARIFICATION_ROUNDS ? pendingQuestions : [];
     const clarification = questions.length ? { questions, history: answers, round: (round?.round ?? 0) + 1,
       optional: Boolean(round), canSkip: assessment.essentialReasons.length === 0,

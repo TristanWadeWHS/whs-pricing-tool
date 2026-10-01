@@ -8,6 +8,14 @@ h1 { margin: 0; font-size: 24px; line-height: 1.2; }
 h2 { font-size: 28px; line-height: 1.25; margin: 0 0 24px; overflow-wrap: anywhere; }
 h3 { font-size: 19px; }
 .staffLabel { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.brandHome { display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: var(--green); text-align: left; font-size: inherit; }
+.brandHome img { object-fit: contain; flex-shrink: 0; }.brandHome small { display: block; font-size: 12px; font-weight: normal; color: var(--muted); }
+.welcomeStep { text-align: center; }.welcomeStep .welcome img { width: 230px; height: 230px; margin: 0 auto; }
+.welcomeStep .welcome p { margin-inline: auto; }.welcomeStep .stepActions { justify-content: center; }
+.welcomeStep .stepActions button:last-child { margin-inline: auto; width: min(100%, 300px); }
+.spiralEntry { animation: spiral-in 650ms cubic-bezier(.18,.74,.27,1) both; transform-origin: center 160px; }
+@keyframes spiral-in { from { opacity: 0; transform: rotate(-65deg) scale(.55); } to { opacity: 1; transform: rotate(0) scale(1); } }
+.locationSuggestions { padding: 0; list-style: none; }.locationSuggestions button { width: 100%; text-align: left; margin-bottom: 8px; }
 .stepTrack { list-style: none; padding: 22px 0; margin: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; border-bottom: 1px solid var(--border); }
 .stepTrack li { display: flex; flex-direction: column; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); text-align: center; }
 .stepTrack span { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%; }
@@ -41,11 +49,12 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .reviewList { margin: 24px 0; }
 .reviewList div { display: grid; grid-template-columns: 100px 1fr; gap: 16px; border-bottom: 1px solid var(--border); padding: 14px 0; }
 .reviewList dt { font-weight: 700; }.reviewList dd { margin: 0; overflow-wrap: anywhere; }
-.analysisBusy { border-block: 1px solid var(--border); padding: 24px 0; margin-top: 24px; }
+.analysisBusy { border-block: 1px solid var(--border); padding: 48px 0; margin-top: 24px; text-align: center; }
+.analysisBusy .busyIndicator { margin: 0 auto 20px; }
 .analysisBusy p { margin: 8px 0; }.analysisBusy button { margin-top: 12px; }
 .busyIndicator { display: block; width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .busyIndicator { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .busyIndicator, .spiralEntry { animation: none; } }
 .result { padding: 24px 0 0; overflow-wrap: anywhere; }
 .quoteBox { padding: 22px 0; border-block: 3px solid var(--green); }
 .quoteBox p { font-weight: 700; margin: 0; }.quoteBox h2 { font-size: 36px; margin: 10px 0 0; }
