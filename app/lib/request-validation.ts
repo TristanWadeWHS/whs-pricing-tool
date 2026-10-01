@@ -1,9 +1,9 @@
 import { JobInputs } from './pricing';
-import { IMAGE_TOO_LARGE_MESSAGE, MAX_ESTIMATE_IMAGE_BYTES, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from './estimate-limits';
+import { IMAGE_TOO_LARGE_MESSAGE, MAX_ESTIMATE_IMAGE_BYTES, MAX_ESTIMATE_PHOTOS, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from './estimate-limits';
 
 export const ESTIMATE_LIMITS = {
   minPhotos: 1,
-  maxPhotos: 5,
+  maxPhotos: MAX_ESTIMATE_PHOTOS,
   maxImageBytes: MAX_ESTIMATE_IMAGE_BYTES,
   maxTotalImageBytes: SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES,
   maxNotesLength: 1000,
@@ -61,7 +61,8 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
   const carryDistance = String(form.get('carryDistance') || '');
   const stairs = String(form.get('stairs') || '');
   const notes = String(form.get('notes') || '').trim();
-  const workers = Number(form.get('workers'));
+  // The guided form does not collect crew size. Missing is unknown, not one worker.
+  const workers = form.has('workers') ? Number(form.get('workers')) : null;
 
   if (!distanceTiers.has(distanceTier)) {
     return invalid('Select a valid distance tier.');
@@ -79,7 +80,7 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
     return invalid('Select a valid stairs option.');
   }
 
-  if (!Number.isInteger(workers) || workers < ESTIMATE_LIMITS.minWorkers || workers > ESTIMATE_LIMITS.maxWorkers) {
+  if (workers !== null && (!Number.isInteger(workers) || workers < ESTIMATE_LIMITS.minWorkers || workers > ESTIMATE_LIMITS.maxWorkers)) {
     return invalid(`Workers planned must be a whole number from ${ESTIMATE_LIMITS.minWorkers} to ${ESTIMATE_LIMITS.maxWorkers}.`);
   }
 

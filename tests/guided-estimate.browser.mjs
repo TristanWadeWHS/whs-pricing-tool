@@ -1,0 +1,111 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const browser = await chromium.launch({ headless: true, channel: 'msedge' });
+const analysis = { estimatedLoadPercent: 55, estimatedLoadCount: 0.55, estimatedLoadRange: 'Synthetic', materialType: 'mixed junk', difficulty: 'easy', heavyDebrisRisk: 'low', confidencePercent: 73, photoAngleQuality: 'good', hiddenDebrisRisk: 'low', visibleItems: ['Synthetic boxes'], observedFacts: [], employeeProvidedFacts: [], assumptions: [], uncertaintyNotes: [], warnings: [], questionsToAsk: [] };
+const base = { status: 'conditional_estimate', estimateKind: 'provisional', priceWithheld: false, firmQuoteEligible: false,
+  estimateLabel: 'Internal estimate - requires review before quoting', analysis, inputs: { stairs: 'none' }, confidenceThreshold: 85,
+  statusReasons: ['Staff review required before quoting.'], assumptions: ['Shown scope only. Policy range, not a statistical prediction interval.'],
+  priceDrivers: [{ topic: 'handling', state: 'resolved', message: 'Handling: low. No automatic heavy adjustment.', evidence: ['Synthetic employee confirmation.'] }],
+  loadUnits: { percent: 55, cubicYards: 6.6, trailerEquivalents: 0.55, volumeOnlyTrips: 1, trailerCubicYards: 12 },
+  diagnostics: { status: 'unavailable', reason: 'Inventory extraction remains deferred.' },
+  pricing: { suggestedQuote: 255, recommendedRange: '$215 - $295', minimumPrice: 130, baseLoadPrice: 248, adjustments: 0, adjustmentNotes: [], customerMessage: null } };
+try {
+  for (const width of [1280, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce', httpCredentials: { username: 'staff', password: 'synthetic-preview-test' } });
+    const page = await context.newPage(); page.setDefaultTimeout(30000);
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    let requests = 0, original, release, staleRelease;
+    await page.route('**/api/historical-reference', (route) => route.fulfill({ json: { status: 'abstained', reasons: ['Synthetic only.'] } }));
+    await page.route('**/api/analyze', async (route) => {
+      const req = route.request();
+      const form = await new Request('http://synthetic.test', { method: 'POST', headers: req.headers(), body: req.postDataBuffer() }).formData();
+      const photos = form.getAll('photos');
+      assert.equal(photos.length, 10); assert.equal(form.has('workers'), false);
+      assert(photos.every((p) => p.type === 'image/jpeg'));
+      assert(photos.reduce((n, p) => n + p.size, 0) <= 3.5 * 1024 * 1024);
+      const snapshot = { notes: form.get('notes'), carry: form.get('carryDistance'), stairs: form.get('stairs'), distance: form.get('distanceTier'), photos: await Promise.all(photos.map(async (p) => Buffer.from(await p.arrayBuffer()).toString('base64'))) };
+      const index = requests++;
+      if (index === 0) {
+        original = snapshot; assert.equal(snapshot.carry, 'short'); assert.equal(snapshot.stairs, 'none'); assert.equal(snapshot.distance, 'under25');
+        assert(snapshot.notes.includes('Item location: Second floor.'));
+        await new Promise((resolve) => { release = resolve; });
+        return route.fulfill({ json: { ...base, clarification: { token: 'synthetic', history: [], round: 1, optional: false, canSkip: true, questions: [{ id: 'contents', text: 'What is inside the boxes?' }, { id: 'dismantling', text: 'Is disassembly required?' }] } } });
+      }
+      assert.deepEqual(snapshot, original);
+      if (index < 3) {
+        const submitted = JSON.parse(form.get('clarification'));
+        assert.deepEqual(submitted.answers, [{ id: 'contents', answer: 'lightweight decorations', notSure: false }, { id: 'dismantling', answer: 'no', notSure: false }]);
+        if (index === 1) return route.fulfill({ status: 502, json: { status: 'analysis_failed', error: 'Synthetic recoverable failure', pricing: null, analysis: null } });
+        return route.fulfill({ json: { ...base, clarification: null } });
+      }
+      if (index === 3) {
+        await new Promise((resolve) => { staleRelease = resolve; });
+        return route.fulfill({ json: { ...base, pricing: { ...base.pricing, recommendedRange: '$999 - $1000' } } }).catch(() => {});
+      }
+      return route.fulfill({ json: { status: 'needs_manager_review', priceWithheld: true, pricing: null, analysis: null, statusReasons: ['Scope is unbounded. Confirm item quantities.'] } });
+    });
+    await page.goto(process.env.SMOKE_URL || 'http://127.0.0.1:3016');
+    await page.getByRole('heading', { name: 'Wade Home Services', exact: true }).waitFor();
+    assert(await page.locator('.welcome img').evaluate((img) => img.complete && img.naturalWidth > 0));
+    await page.screenshot({ path: join(tmpdir(), `whs-guided-welcome-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Start estimate', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Confirm the distance tier' }).waitFor();
+    await page.getByRole('radio', { name: 'Within 25 miles', exact: true }).check();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('radio', { name: 'Mixed junk', exact: true }).check();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('radio', { name: 'Second floor', exact: true }).check();
+    assert.equal(await page.locator('input[name=stairs]:checked,input[name=carryDistance]:checked').count(), 0);
+    await page.getByRole('radio', { name: 'Short carry', exact: true }).check();
+    await page.getByRole('radio', { name: 'No stairs', exact: true }).check();
+    await page.screenshot({ path: join(tmpdir(), `whs-guided-access-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 1600; const ctx = c.getContext('2d'); ctx.fillStyle = '#e9eff2'; ctx.fillRect(0, 0, 1600, 1600); ctx.fillStyle = '#345b49'; ctx.fillRect(400, 400, 800, 700); return c.toDataURL().split(',')[1]; });
+    await page.locator('input[type=file]').setInputFiles(Array.from({ length: 10 }, (_, i) => ({ name: `synthetic-${i}.png`, mimeType: 'image/png', buffer: Buffer.from(image, 'base64') })));
+    await page.waitForFunction(() => !document.querySelector('.stepActions button[type=submit]').disabled);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.locator('textarea[name=notes]').fill('Synthetic lightweight goods. All items easily carried by one person. Elevator route; all shown items included.');
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    assert((await page.locator('#photo-help').innerText()).includes('10 image(s) selected'));
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    assert((await page.locator('textarea[name=notes]').inputValue()).includes('Synthetic lightweight'));
+    assert.equal(await page.locator('input[name=workers]').count(), 0);
+    await page.getByRole('button', { name: 'Analyze Job', exact: true }).click();
+    await page.getByText('Analyzing your job...', { exact: true }).waitFor();
+    assert.equal(await page.locator('.busyIndicator').evaluate((el) => getComputedStyle(el).animationName), 'none');
+    await page.locator('.guided form').evaluate((form) => form.requestSubmit());
+    await page.waitForFunction(() => document.activeElement?.classList.contains('analysisBusy'));
+    assert.equal(requests, 1); release();
+    await page.getByRole('heading', { name: '$215 - $295', exact: true }).waitFor();
+    assert.equal(await page.locator('textarea[readonly]').count(), 0);
+    assert.equal(await page.locator('.clarificationQuestion').count(), 2);
+    for (const name of ['Assumptions', 'Model-estimated loads', 'Scope and price drivers', 'Historical reference', 'Uncalibrated analysis score', 'Technical shadow diagnostics']) {
+      const summary = page.locator('summary').filter({ hasText: name });
+      assert.equal(await summary.locator('..').getAttribute('open'), null);
+    }
+    await page.locator('#answer-contents').fill('lightweight decorations'); await page.locator('#answer-dismantling').fill('no');
+    await page.getByRole('button', { name: 'Reassess estimate', exact: true }).click();
+    await page.getByRole('alert').getByText('Synthetic recoverable failure').waitFor();
+    assert.equal(await page.locator('.quoteBox').count(), 0); assert.equal(await page.locator('#answer-dismantling').inputValue(), 'no');
+    await page.getByRole('button', { name: 'Reassess estimate', exact: true }).click();
+    await page.getByRole('heading', { name: '$215 - $295', exact: true }).waitFor();
+    assert.equal(await page.locator('.clarificationQuestion').count(), 0);
+    await page.locator('summary').filter({ hasText: 'Model-estimated loads' }).click();
+    assert((await page.getByRole('region', { name: 'Internal estimate' }).innerText()).includes('55% = 6.6 cubic yards = 0.55 trailer equivalents'));
+    await page.screenshot({ path: join(tmpdir(), `whs-guided-result-${width}.png`), fullPage: true });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.getByRole('button', { name: 'Edit original details', exact: true }).click();
+    await page.getByRole('button', { name: 'Analyze Job', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel request', exact: true }).click();
+    await page.getByRole('button', { name: 'Analyze Job', exact: true }).click();
+    await page.getByRole('heading', { name: 'Manager review required', exact: true }).waitFor();
+    staleRelease(); assert.equal(await page.locator('.quoteBox').count(), 0);
+    assert.deepEqual(errors, []); await context.close();
+  }
+  console.log('PASS: synthetic desktop/mobile guided flow, explicit route mapping, 10-photo browser optimization, unchanged upload budget, preserved context/brief answers, failed reassessment/retry, duplicate/stale protection, unbounded withholding, accessible controls/focus, reduced motion, loaded brand asset, collapsed diagnostics, no overflow. Mocked APIs; no live model/Sheets calls.');
+} finally { await browser.close(); }

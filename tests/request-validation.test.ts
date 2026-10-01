@@ -11,7 +11,7 @@ describe('estimate request validation', () => {
   });
 
   it('rejects too many files, empty files, oversized files, and unsupported MIME types', async () => {
-    await expect(validateEstimateForm(makeForm({}, Array.from({ length: 6 }, (_, i) => pngFile(`p${i}.png`))))).resolves.toMatchObject({ ok: false });
+    await expect(validateEstimateForm(makeForm({}, Array.from({ length: 11 }, (_, i) => pngFile(`p${i}.png`))))).resolves.toMatchObject({ ok: false });
     await expect(validateEstimateForm(makeForm({}, [new File([new Uint8Array()], 'empty.png', { type: 'image/png' })]))).resolves.toMatchObject({ ok: false });
     await expect(validateEstimateForm(makeForm({}, [pngFile('large.png', new Uint8Array(4 * 1024 * 1024))]))).resolves.toMatchObject({
       ok: false,

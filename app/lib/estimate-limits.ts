@@ -1,6 +1,7 @@
 export const VERCEL_FUNCTION_PAYLOAD_LIMIT_BYTES = Math.floor(4.5 * 1024 * 1024);
 export const SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES = Math.floor(3.5 * 1024 * 1024);
 export const MAX_ESTIMATE_IMAGE_BYTES = 3 * 1024 * 1024;
+export const MAX_ESTIMATE_PHOTOS = 10;
 
 export const IMAGE_TOO_LARGE_MESSAGE = 'The selected images are too large to analyze. Please use fewer images or smaller files.';
 

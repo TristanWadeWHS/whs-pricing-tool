@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { HistoricalReference } from './historical-reference';
 import { ShadowDiagnostics } from './shadow-diagnostics';
+import { GuidedJobForm } from './guided-job-form';
 import { canDisplayEstimate, failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
 import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from './lib/analysis-confidence';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
@@ -28,11 +29,18 @@ export default function Home() {
   const originalForm = useRef<FormData | null>(null);
   const requestId = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
+  const busyRegion = useRef<HTMLDivElement>(null);
+  const resultRegion = useRef<HTMLElement>(null);
   const [answers, setAnswers] = useState<Record<string, { answer: string; notSure: boolean }>>({});
   const [clarificationError, setClarificationError] = useState('');
   const [questionsOpen, setQuestionsOpen] = useState(true);
   const clarifying = Boolean(result?.clarification);
   const withheld = Boolean(result?.priceWithheld) || result?.status === 'analysis_failed';
+
+  useEffect(() => {
+    if (loading) busyRegion.current?.focus();
+    else if (result) resultRegion.current?.focus();
+  }, [loading, result]);
 
   useEffect(() => {
     return () => {
@@ -68,8 +76,7 @@ export default function Home() {
     setPhotoState({ status: 'ready', message: optimized.message, photos: optimized.photos });
   }
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function submit(details: FormData) {
     if (activeRequest.current || clarifying) return;
 
     if (photoState.status === 'optimizing') {
@@ -94,7 +101,7 @@ export default function Home() {
       return;
     }
 
-    const formData = buildAnalyzeFormWithOptimizedPhotos(new FormData(e.currentTarget), processedFiles);
+    const formData = buildAnalyzeFormWithOptimizedPhotos(details, processedFiles);
     originalForm.current = formData;
     await runAnalysis(formData, false);
   }
@@ -158,123 +165,42 @@ export default function Home() {
 
   return (
     <main className="page">
-      <section className="hero">
-        <div>
-          <p className="eyebrow">Wade Home Services</p>
-          <h1>Internal Pricing Tool</h1>
-          <p className="sub">Upload job photos, enter the basic details, and get an AI-assisted quote recommendation.</p>
-        </div>
-        <img className="winstonLogo" src="/winston-logo.png" alt="Wade Home Services Winston logo" />
-      </section>
+      <header className="brandHeader">
+        <div><p className="eyebrow">WHS / INTERNAL</p><h1>Wade Home Services</h1></div>
+        <span className="staffLabel">Team estimator</span>
+      </header>
+      <div hidden={canDisplayEstimate(result) || clarifying || result?.status === 'needs_manager_review'}>
+        <GuidedJobForm disabled={loading} photoStatus={photoState.status} photoMessage={photoState.message} photoCount={fileCount}
+          onPhotos={(files) => void handlePhotoChange(files)} onAnalyze={submit} />
+      </div>
 
-      <form className="card form" onSubmit={submit}>
-        <fieldset className="jobFields" disabled={loading || clarifying}>
-        <label>
-          Job photos, 1-5 images
-          <input
-            name="photos"
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-            multiple
-            required
-            aria-describedby="photo-help photo-status"
-            onChange={(e) => void handlePhotoChange(e.target.files)}
-          />
-          <span id="photo-help" className="helperText">{fileCount > 0 ? `${fileCount} image(s) selected` : 'Select up to 5 photos from different angles.'}</span>
-          {photoState.message ? (
-            <span
-              id="photo-status"
-              className={photoState.status === 'error' ? 'helperText photoErrorText' : 'helperText'}
-              role="status"
-              aria-live="polite"
-            >
-              {photoState.message}
-            </span>
-          ) : null}
-        </label>
-
-        <div className="grid">
-          <label>
-            Distance tier
-            <select name="distanceTier" defaultValue="under25">
-              <option value="under25">{withheld ? 'Within 25 miles' : 'Within 25 miles - $130 minimum'}</option>
-              <option value="25to40">{withheld ? '25-40 miles' : '25-40 miles - $145 minimum'}</option>
-              <option value="40to65">{withheld ? '40-65 miles' : '40-65 miles - $175 minimum'}</option>
-            </select>
-          </label>
-
-          <label>
-            Job type
-            <select name="jobType" defaultValue="mixed junk">
-              <option value="mixed junk">Mixed junk</option>
-              <option value="furniture">Furniture</option>
-              <option value="cardboard only">Cardboard only</option>
-              <option value="demo debris">Demo debris</option>
-              <option value="concrete / dirt / heavy debris">Concrete / dirt / heavy debris</option>
-              <option value="appliances">Appliances</option>
-              <option value="storage relocation">Storage relocation</option>
-            </select>
-          </label>
-
-          <label>
-            Carry distance
-            <select name="carryDistance" defaultValue="short">
-              <option value="curbside">Curbside / driveway</option>
-              <option value="short">Short carry</option>
-              <option value="medium">Medium carry</option>
-              <option value="long">Long carry / backyard / difficult access</option>
-            </select>
-          </label>
-
-          <label>
-            Stairs
-            <select name="stairs" defaultValue="none">
-              <option value="none">No stairs</option>
-              <option value="some">Some stairs</option>
-              <option value="heavy">Heavy stairs / upstairs furniture</option>
-            </select>
-          </label>
-
-          <label>
-            Workers planned
-            <input name="workers" type="number" min="1" max="6" defaultValue="1" />
-          </label>
-        </div>
-
-        <label>
-          Notes from employee
-          <textarea name="notes" maxLength={1000} placeholder="Example: client says mostly cardboard, garage access, no stairs, possible items in backyard..." />
-        </label>
-
-        <button disabled={loading || photoState.status === 'optimizing' || photoState.status === 'error'} aria-busy={loading || photoState.status === 'optimizing'}>
-          {photoState.status === 'optimizing' ? OPTIMIZATION_MESSAGES.optimizing : loading ? 'Analyzing...' : 'Analyze Job'}
-        </button>
-        </fieldset>
-      </form>
-
-      {loading && <div className="analysisBusy" role="status" aria-live="polite">
+      {loading && <div ref={busyRegion} tabIndex={-1} className="analysisBusy" role="status" aria-live="polite">
+        <span className="busyIndicator" aria-hidden="true" />
         <p>{clarifying ? 'Reassessing your job...' : 'Analyzing your job...'}</p>
+        <p className="helperText">Reviewing photos, scope and pricing rules. This may take a moment.</p>
         <button type="button" onClick={cancelAnalysis}>Cancel request</button>
       </div>}
 
-      {canDisplayEstimate(result) && <section className="result" aria-label="Internal estimate">
+      {canDisplayEstimate(result) && <section ref={resultRegion} tabIndex={-1} className="result" aria-label="Internal estimate">
         <div className="quoteBox">
           <p>{result.estimateLabel}</p>
           <h2>{result.pricing.recommendedRange}</h2>
         </div>
-        <p><b>Review status:</b> {formatStatus(result.status)}</p>
-        {result.loadUnits && <div aria-label="Model-estimated loaded volume">
+        <details open><summary>Review status</summary><p>{formatStatus(result.status)}</p>
+        <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul></details>
+        {result.loadUnits && <details aria-label="Model-estimated loaded volume"><summary>Model-estimated loads</summary>
           <p><b>Model-estimated loaded volume:</b> {result.loadUnits.percent}% = {result.loadUnits.cubicYards} cubic yards = {result.loadUnits.trailerEquivalents} trailer equivalents ({result.loadUnits.trailerCubicYards}-yard trailer).</p>
           <p>Whole volume-only hauling trips: {result.loadUnits.volumeOnlyTrips}. Not payload or towing approval.</p>
-        </div>}
-        <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-        <h3>Assumptions</h3>
+        </details>}
+        <details><summary>Assumptions</summary>
         <ul>{result.assumptions?.map((value) => <li key={value}>{value}</li>)}</ul>
-        <h3>Scope and price drivers</h3>
+        </details>
+        <details><summary>Scope and price drivers</summary>
         {result.priceDrivers?.map((driver, index) => <div key={`${driver.topic}-${index}`}>
           <p><b>{driver.topic} ({driver.state}):</b> {driver.message}</p>
           <ul>{driver.evidence.map((value) => <li key={value}>{value}</li>)}</ul>
         </div>)}
+        </details>
       </section>}
 
       {result?.clarification && <section className="clarificationPanel" aria-labelledby="clarification-title">
@@ -306,18 +232,18 @@ export default function Home() {
         setResult(null); setAnswers({}); setClarificationError(''); setQuestionsOpen(true); originalForm.current = null;
       }}>Edit original details</button>}
 
-      {withheld && result?.analysisConfidence && <section aria-label="Analysis-confidence score">
+      {withheld && result?.analysisConfidence && <details aria-label="Analysis-confidence score"><summary>Uncalibrated analysis score</summary>
         <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysisConfidence.score}/100</p>
         <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
-      </section>}
+      </details>}
 
-      {result?.status === 'needs_manager_review' && !canDisplayEstimate(result) && <section className="clarificationPanel" role="status">
+      {result?.status === 'needs_manager_review' && !canDisplayEstimate(result) && <section ref={resultRegion} tabIndex={-1} className="clarificationPanel" role="status">
         <h2>Manager review required</h2>
         <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul>
       </section>}
 
       {result?.error && (
-        <section className="card error">
+        <section ref={resultRegion} tabIndex={-1} className="error" role="alert">
           <h3>Analysis Not Available</h3>
           <p>{result.error}</p>
           {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
@@ -327,18 +253,17 @@ export default function Home() {
       {result?.diagnostics && <details><summary>Technical shadow diagnostics</summary><ShadowDiagnostics result={result.diagnostics} /></details>}
 
       {canDisplayEstimate(result) && (
-        <section className="card result">
-          <HistoricalReference stairs={result.inputs?.stairs} projectedLoads={result.analysis.estimatedLoadCount} />
+        <section className="result">
+          <details><summary>Historical reference</summary><HistoricalReference stairs={result.inputs?.stairs} projectedLoads={result.analysis.estimatedLoadCount} /></details>
 
-          <div className="summaryBox">
-            <h3>Estimate Quality</h3>
+          <details><summary>Uncalibrated analysis score</summary>
             <p><b>Status:</b> {formatStatus(result.status)}</p>
             <p><b>{ANALYSIS_CONFIDENCE_LABEL}:</b> {result.analysis.confidencePercent}/100</p>
             <p>{ANALYSIS_CONFIDENCE_NOTE}</p>
             <p><b>Direct-quote workflow threshold:</b> {result.confidenceThreshold}/100</p>
             <p><b>Photo angle quality:</b> {result.analysis.photoAngleQuality}</p>
             {result.statusReasons?.length ? <ul>{result.statusReasons.map((x: string) => <li key={x}>{x}</li>)}</ul> : null}
-          </div>
+          </details>
 
           <details><summary>Core analysis and pricing calculation</summary>
           <div className="grid resultGrid">
