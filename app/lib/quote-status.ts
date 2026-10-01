@@ -1,4 +1,4 @@
-import { JobInputs, PricingResult } from './pricing';
+import { JobInputs, PricingResult, selectedJobTypes } from './pricing';
 import { VisionAnalysis } from './analysis-schema';
 
 export type QuoteStatus = 'analysis_failed' | 'needs_manager_review' | 'conditional_estimate' | 'direct_quote_eligible';
@@ -33,7 +33,7 @@ export function determineQuoteStatus(
   }
 
   const reasons: string[] = [];
-  const jobType = inputs.jobType.toLowerCase();
+  const jobType = selectedJobTypes(inputs).join(', ').toLowerCase();
 
   if (analysis.confidencePercent < threshold) {
     reasons.push(`Confidence is below the provisional ${threshold}% direct-quote threshold.`);

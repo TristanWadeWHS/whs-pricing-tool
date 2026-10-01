@@ -4,12 +4,13 @@ import { priceJob } from '../../lib/pricing';
 import { validateEstimateForm } from '../../lib/request-validation';
 import { AnalysisError, analyzeJobPhotosWithOpenAI } from '../../lib/openai-analysis';
 import { buildCustomerMessage, determineQuoteStatus } from '../../lib/quote-status';
-import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, MAX_CLARIFICATION_ROUNDS, QUESTION_TEXT, verifyClarificationRound } from '../../lib/clarification';
+import { clarificationQuestions, hasUnresolvedAnswers, issueClarification, MAX_CLARIFICATION_ROUNDS, verifyClarificationRound } from '../../lib/clarification';
 import { analysisConfidence } from '../../lib/analysis-confidence';
 import { safeShadowDiagnostics } from '../../lib/shadow-diagnostics';
 import { shadowPreviewEnabled } from '../../lib/shadow-schema';
 import { assessInternalEstimate, INTERNAL_ESTIMATE_LABEL } from '../../lib/internal-estimate';
 import { normalizeClarificationAnswer } from '../../lib/clarification-facts';
+import { LocationError, verifyLocationToken } from '../../lib/location-provider';
 
 export const runtime = 'nodejs';
 
@@ -26,7 +27,13 @@ export async function POST(req: NextRequest) {
     console.info('[analyze] request received', { requestId });
 
     const form = await req.formData();
-    const validation = await validateEstimateForm(form);
+    let location;
+    try { if (form.get('workflow') === 'guided-location-v2') location = verifyLocationToken(form.get('locationToken')); }
+    catch (error) {
+      return NextResponse.json({ status: 'analysis_failed', analysis: null, pricing: null,
+        error: error instanceof LocationError ? error.message : 'Location verification failed.' }, { status: error instanceof LocationError ? error.status : 400 });
+    }
+    const validation = await validateEstimateForm(form, location);
     if (validation.ok === false) {
       console.warn('[analyze] request validation failed', {
         requestId,
@@ -76,9 +83,7 @@ export async function POST(req: NextRequest) {
 
     const diagnostics = shadowPreviewEnabled() ? safeShadowDiagnostics(inputs, analysis, answers, photos.length) : undefined;
     const assessment = assessInternalEstimate(inputs, analysis, answers, photos.length);
-    const pendingQuestions = clarificationQuestions({ ...analysis,
-      questionsToAsk: [...assessment.essentialQuestions.map((id) => QUESTION_TEXT[id]), ...analysis.questionsToAsk]
-    }, inputs.notes, answers, photos.length);
+    const pendingQuestions = clarificationQuestions(analysis, inputs.notes, answers, photos.length, assessment.essentialQuestions);
     const questions = (round?.round ?? 0) < MAX_CLARIFICATION_ROUNDS ? pendingQuestions : [];
     const clarification = questions.length ? { questions, history: answers, round: (round?.round ?? 0) + 1,
       optional: Boolean(round), canSkip: assessment.essentialReasons.length === 0,

@@ -34,6 +34,7 @@ export default function Home() {
   const [answers, setAnswers] = useState<Record<string, { answer: string; notSure: boolean }>>({});
   const [clarificationError, setClarificationError] = useState('');
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  const [formVersion, setFormVersion] = useState(0);
   const clarifying = Boolean(result?.clarification);
   const withheld = Boolean(result?.priceWithheld) || result?.status === 'analysis_failed';
 
@@ -163,21 +164,31 @@ export default function Home() {
     setLoading(false);
   }
 
+  function startOver() {
+    cancelAnalysis(); selectionId.current += 1;
+    originalForm.current = null; setResult(null); setAnswers({}); setClarificationError(''); setQuestionsOpen(true);
+    setFileCount(0); setPhotoState({ status: 'idle', message: '', photos: [] });
+    setFormVersion((version) => version + 1);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
   return (
     <main className="page">
       <header className="brandHeader">
-        <div><p className="eyebrow">WHS / INTERNAL</p><h1>Wade Home Services</h1></div>
+        <h1><button type="button" className="brandHome" onClick={startOver} aria-label="Wade Home Services - start over">
+          <img src="/winston-logo.png" alt="Wade Home Services logo" width="64" height="64" /><span>Wade Home Services<small>Internal team estimator</small></span>
+        </button></h1>
         <span className="staffLabel">Team estimator</span>
       </header>
-      <div hidden={canDisplayEstimate(result) || clarifying || result?.status === 'needs_manager_review'}>
-        <GuidedJobForm disabled={loading} photoStatus={photoState.status} photoMessage={photoState.message} photoCount={fileCount}
+      <div hidden={loading || canDisplayEstimate(result) || clarifying || result?.status === 'needs_manager_review'}>
+        <GuidedJobForm key={formVersion} disabled={loading} photoStatus={photoState.status} photoMessage={photoState.message} photoCount={fileCount}
           onPhotos={(files) => void handlePhotoChange(files)} onAnalyze={submit} />
       </div>
 
       {loading && <div ref={busyRegion} tabIndex={-1} className="analysisBusy" role="status" aria-live="polite">
         <span className="busyIndicator" aria-hidden="true" />
         <p>{clarifying ? 'Reassessing your job...' : 'Analyzing your job...'}</p>
-        <p className="helperText">Reviewing photos, scope and pricing rules. This may take a moment.</p>
+        <p className="helperText">Reviewing photos, scope and pricing rules. We&apos;re working on your estimate.</p>
         <button type="button" onClick={cancelAnalysis}>Cancel request</button>
       </div>}
 
@@ -187,6 +198,7 @@ export default function Home() {
           <h2>{result.pricing.recommendedRange}</h2>
         </div>
         <details open><summary>Review status</summary><p>{formatStatus(result.status)}</p>
+        <p><b>Job types:</b> {(result.inputs?.jobTypes ?? [result.inputs?.jobType]).filter(Boolean).join(', ')}</p>
         <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul></details>
         {result.loadUnits && <details aria-label="Model-estimated loaded volume"><summary>Model-estimated loads</summary>
           <p><b>Model-estimated loaded volume:</b> {result.loadUnits.percent}% = {result.loadUnits.cubicYards} cubic yards = {result.loadUnits.trailerEquivalents} trailer equivalents ({result.loadUnits.trailerCubicYards}-yard trailer).</p>
@@ -296,6 +308,7 @@ export default function Home() {
           </>}
         </section>
       )}
+      {result && <button type="button" className="restartAnalysis startOver" onClick={startOver}>Start Over</button>}
     </main>
   );
 }

@@ -1,5 +1,6 @@
 import { JobInputs } from './pricing';
 import { IMAGE_TOO_LARGE_MESSAGE, MAX_ESTIMATE_IMAGE_BYTES, MAX_ESTIMATE_PHOTOS, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from './estimate-limits';
+import { isResolvedLocation, LOCATION_REQUIRED, tierForDrivingMiles, type ResolvedLocation } from './location-resolution';
 
 export const ESTIMATE_LIMITS = {
   minPhotos: 1,
@@ -40,7 +41,11 @@ const stairsOptions = new Set(['none', 'some', 'heavy']);
 const jobTypes = new Set<string>(ESTIMATE_LIMITS.supportedJobTypes);
 const mimeTypes = new Set<string>(ESTIMATE_LIMITS.supportedMimeTypes);
 
-export async function validateEstimateForm(form: FormData): Promise<ValidationResult> {
+export async function validateEstimateForm(form: FormData, verifiedLocation?: ResolvedLocation): Promise<ValidationResult> {
+  // Only the server route can supply a cryptographically verified location.
+  if (form.get('workflow') === 'guided-location-v2' && (!isResolvedLocation(verifiedLocation)
+    || form.getAll('locationToken').length !== 1 || form.get('locationToken') !== verifiedLocation.token
+    || form.get('distanceTier') !== tierForDrivingMiles(verifiedLocation.drivingMiles))) return invalid(LOCATION_REQUIRED);
   const rawFiles = form.getAll('photos');
   const files = rawFiles.filter((value): value is File => value instanceof File);
 
@@ -57,7 +62,7 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
   }
 
   const distanceTier = String(form.get('distanceTier') || '');
-  const jobType = String(form.get('jobType') || '');
+  const selectedTypes = form.getAll('jobType');
   const carryDistance = String(form.get('carryDistance') || '');
   const stairs = String(form.get('stairs') || '');
   const notes = String(form.get('notes') || '').trim();
@@ -68,8 +73,9 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
     return invalid('Select a valid distance tier.');
   }
 
-  if (!jobTypes.has(jobType)) {
-    return invalid('Select a valid job type.');
+  if (!selectedTypes.length || selectedTypes.length > jobTypes.size || new Set(selectedTypes).size !== selectedTypes.length
+    || !selectedTypes.every((type) => typeof type === 'string' && jobTypes.has(type))) {
+    return invalid('Select one or more distinct valid job types.');
   }
 
   if (!carryDistances.has(carryDistance)) {
@@ -121,7 +127,8 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
     value: {
       inputs: {
         distanceTier: distanceTier as JobInputs['distanceTier'],
-        jobType,
+        jobType: selectedTypes.join(', '),
+        jobTypes: selectedTypes as string[],
         carryDistance: carryDistance as JobInputs['carryDistance'],
         stairs: stairs as JobInputs['stairs'],
         workers,

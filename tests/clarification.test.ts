@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('server-only', () => ({}));
 import { makeForm, sampleAnalysis, sampleInputs } from './helpers';
 import { clarificationQuestions, issueClarification, verifyClarification, type ClarificationAnswer } from '../app/lib/clarification';
 import { validateEstimateForm } from '../app/lib/request-validation';
@@ -12,7 +13,7 @@ vi.mock('openai', () => ({ default: vi.fn(function () { return { responses: { pa
 import { POST } from '../app/api/analyze/route';
 
 afterEach(() => { vi.unstubAllEnvs(); parseMock.mockReset(); });
-const low = () => sampleAnalysis({ confidencePercent: 73, questionsToAsk: ['Anything hidden?'], uncertaintyNotes: ['Hidden items unclear'] });
+const low = () => sampleAnalysis({ confidencePercent: 73, observedFacts: ['The pile obscures the view behind it.'], questionsToAsk: ['Anything hidden?'], uncertaintyNotes: ['Hidden items unclear'] });
 async function post(form = makeForm()) {
   vi.stubEnv('OPENAI_API_KEY', 'synthetic-server-only-key');
   const response = await POST(new Request('http://localhost/api/analyze', { method: 'POST', body: form }) as never);
@@ -24,9 +25,24 @@ function answerForm(clarification: { token: string; history: ClarificationAnswer
 }
 
 describe('internal pricing and firm-quote separation', () => {
+  it('preserves every selected job type through validation, provider inputs and response', async () => {
+    const form = makeForm({ jobType: 'furniture' }); form.append('jobType', 'appliances');
+    parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis() });
+    const { body } = await post(form);
+    expect(body.inputs.jobTypes).toEqual(['furniture', 'appliances']);
+    expect(body.inputs.jobType).toBe('furniture, appliances');
+    expect(parseMock.mock.lastCall![0].input[0].content[0].text).toContain('"jobTypes":["furniture","appliances"]');
+    expect(body.firmQuoteEligible).toBe(false);
+  });
+  it('rejects a forged guided tier before any provider call when routing is unavailable', async () => {
+    const form = makeForm(); form.set('workflow', 'guided-location-v2');
+    const { status, body } = await post(form); expect(status).toBe(503);
+    expect(body.error).toContain('GOOGLE_MAPS_API_KEY'); expect(body.pricing).toBeNull();
+    expect(parseMock).not.toHaveBeenCalled();
+  });
   it('uses reconciled brief answers for adjustment pricing and explanations at a fixed 55%', async () => {
     const core = sampleAnalysis({ confidencePercent: 73, estimatedLoadPercent: 55, estimatedLoadCount: 0.55,
-      heavyDebrisRisk: 'medium', hiddenDebrisRisk: 'medium', difficulty: 'medium', questionsToAsk: ['What is inside the boxes?', 'Anything hidden?'] });
+      heavyDebrisRisk: 'medium', hiddenDebrisRisk: 'medium', difficulty: 'medium', observedFacts: ['Closed boxes obscure the view underneath.'], questionsToAsk: ['What is inside the boxes?', 'Anything hidden?'] });
     parseMock.mockResolvedValueOnce({ output_parsed: core });
     const initial = (await post()).body;
     parseMock.mockResolvedValueOnce({ output_parsed: core });
@@ -34,7 +50,7 @@ describe('internal pricing and firm-quote separation', () => {
       { id: 'contents', answer: 'Lightweight household goods; all items easily carried by one person.', notSure: false },
       { id: 'hidden', answer: 'nothing else', notSure: false }
     ]));
-    expect(body.pricing.adjustments).toBe(0); expect(body.pricing.recommendedRange).toBe('$215–$295');
+    expect(body.pricing.adjustments).toBe(0); expect(body.pricing.recommendedRange).toBe('$270–$350');
     expect(body.priceDrivers.find((driver: { topic: string }) => driver.topic === 'handling').message).toContain('Handling: low');
     expect(body.priceDrivers.find((driver: { topic: string }) => driver.topic === 'hidden').state).toBe('resolved');
     expect(body.loadUnits.cubicYards).toBe(6.6); expect(body.loadUnits.trailerEquivalents).toBe(0.55);
@@ -110,13 +126,13 @@ describe('brief answers, evidence and signed rounds', () => {
     expect(observed.drivers.find((d) => d.topic === 'material / disposal')?.state).toBe('review'); expect(observed.drivers.find((d) => d.topic === 'material / disposal')?.evidence.join(' ')).toContain('Concrete blocks');
   });
   it('limits questions to two, skips resolved topics and prioritizes previously unasked questions', () => {
-    const analysis = sampleAnalysis({ questionsToAsk: ['Anything hidden?', 'What is inside boxes?', 'Disassembly?', 'Dimensions unclear?'] });
+    const analysis = sampleAnalysis({ observedFacts: ['Closed boxes obscure a bolted cabinet; cabinet dimensions unclear.'], questionsToAsk: ['Anything hidden?', 'What is inside boxes?', 'Disassembly?', 'Dimensions unclear?'] });
     expect(clarificationQuestions(analysis, '').map((q) => q.id)).toEqual(['hidden', 'contents']);
     expect(clarificationQuestions(analysis, '', [{ id: 'hidden', answer: '', notSure: true }, { id: 'contents', answer: 'blankets', notSure: false }]).map((q) => q.id)).toEqual(['dismantling', 'dimensions']);
     expect(clarificationQuestions(analysis, 'Nothing hidden. Boxes contain blankets. No disassembly required.').map((q) => q.id)).toEqual(['dimensions']);
   });
   it('binds optional second-round answers to original context and signed history', async () => {
-    const initial = await begin(); parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis({ confidencePercent: 73, questionsToAsk: ['Need disassembly?'] }) });
+    const initial = await begin(); parseMock.mockResolvedValueOnce({ output_parsed: sampleAnalysis({ confidencePercent: 73, observedFacts: ['The cabinet is bolted down.'], questionsToAsk: ['Need disassembly?'] }) });
     const second = (await post(answerForm(initial.clarification))).body; expect(second.clarification.optional).toBe(true); expect(second.clarification.round).toBe(2);
     expect(second.clarification.history[0].answer).toBe('nothing else'); expect(canDisplayEstimate(second)).toBe(true);
     const answers: ClarificationAnswer[] = [{ id: 'dismantling', answer: 'no', notSure: false }];
