@@ -1,5 +1,5 @@
 import { ESTIMATE_LIMITS } from './request-validation';
-import { isResolvedLocation, LOCATION_BLOCKER, tierForDrivingMiles, type ResolvedLocation } from './location-resolution';
+import { isResolvedLocation, LOCATION_REQUIRED, tierForDrivingMiles, type ResolvedLocation } from './location-resolution';
 
 export const STEPS = ['Welcome', 'Location', 'Job type', 'Access', 'Photos', 'Review'] as const;
 export const DISTANCES = [['under25', 'Within 25 miles'], ['25to40', '25-40 miles'], ['40to65', '40-65 miles']] as const;
@@ -15,7 +15,7 @@ export function guidedNotes(details: GuidedDetails) {
 }
 
 export function stepProblem(step: number, details: GuidedDetails, photosReady: boolean): string | null {
-  if (step === 1 && !isResolvedLocation(details.location)) return LOCATION_BLOCKER;
+  if (step === 1 && !isResolvedLocation(details.location)) return LOCATION_REQUIRED;
   if (step === 2 && (!details.jobTypes.length || new Set(details.jobTypes).size !== details.jobTypes.length || !details.jobTypes.every((type) => JOB_TYPES.some((value) => value === type)))) return 'Choose one or more job types.';
   if (step === 3 && (!ITEM_LOCATIONS.some((value) => value === details.itemLocation) || !CARRIES.some(([value]) => value === details.carryDistance) || !STAIRS.some(([value]) => value === details.stairs))) return 'Confirm the item location, carry distance and stairs. Unknown access needs staff confirmation, not a guessed charge.';
   if (step === 4 && !photosReady) return 'Choose photos and wait for optimization to finish.';
@@ -27,6 +27,7 @@ export function guidedForm(details: GuidedDetails) {
   for (const step of [1, 2, 3, 5]) { const problem = stepProblem(step, details, true); if (problem) throw new Error(problem); }
   const form = new FormData();
   form.set('workflow', 'guided-location-v2');
+  form.set('locationToken', details.location!.token);
   form.set('distanceTier', tierForDrivingMiles(details.location!.drivingMiles)!);
   for (const type of details.jobTypes) form.append('jobType', type);
   for (const key of ['carryDistance', 'stairs'] as const) form.set(key, details[key]);

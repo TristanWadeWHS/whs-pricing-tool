@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('server-only', () => ({}));
 import { sampleAnalysis } from './helpers';
 
 const parseMock = vi.hoisted(() => vi.fn());

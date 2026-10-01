@@ -20,9 +20,14 @@ try {
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     let requests = 0, original, release, staleRelease;
     let mockRouting = false;
-    await page.route('**/api/estimate-location?*', (route) => route.fulfill(mockRouting
-      ? { json: { suggestions: [{ id: 'synthetic', label: 'Synthetic California neighborhood', state: 'CA', drivingMiles: 20 }] } }
-      : { status: 503, json: { status: 'blocked', suggestions: [] } }));
+    await page.route('**/api/estimate-location?*', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (!mockRouting) return route.fulfill({ status: 503, json: { status: 'blocked', error: 'Google Maps location search is not configured.', suggestions: [] } });
+      if (params.get('query') === 'No such city') return route.fulfill({ json: { suggestions: [] } });
+      if (params.get('query') === 'Provider failure') return route.fulfill({ status: 502, json: { error: 'Google Maps could not complete the request.' } });
+      if (params.has('placeId')) return route.fulfill({ json: { location: { id: 'synthetic-lake-forest', label: 'Lake Forest, CA', state: 'CA', drivingMiles: 20, latitude: 33.65, longitude: -117.69, token: 'synthetic-location-proof' } } });
+      return route.fulfill({ json: { suggestions: [{ id: 'synthetic-lake-forest', label: 'Lake Forest, CA, USA' }] } });
+    });
     await page.route('**/api/historical-reference', (route) => route.fulfill({ json: { status: 'abstained', reasons: ['Synthetic only.'] } }));
     await page.route('**/api/analyze', async (route) => {
       const req = route.request();
@@ -31,6 +36,7 @@ try {
       assert.equal(photos.length, 10); assert.equal(form.has('workers'), false);
       assert.deepEqual(form.getAll('jobType'), ['furniture', 'appliances']);
       assert.equal(form.get('workflow'), 'guided-location-v2');
+      assert.equal(form.get('locationToken'), 'synthetic-location-proof');
       assert(photos.every((p) => p.type === 'image/jpeg'));
       assert(photos.reduce((n, p) => n + p.size, 0) <= 3.5 * 1024 * 1024);
       const snapshot = { notes: form.get('notes'), carry: form.get('carryDistance'), stairs: form.get('stairs'), distance: form.get('distanceTier'), photos: await Promise.all(photos.map(async (p) => Buffer.from(await p.arrayBuffer()).toString('base64'))) };
@@ -65,12 +71,25 @@ try {
     await page.getByLabel('California city or neighborhood', { exact: true }).fill('Test');
     await page.locator('#location-status').filter({ hasText: 'not configured' }).waitFor();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: 'not configured' }).waitFor();
+    await page.getByRole('alert').filter({ hasText: 'Select a California' }).waitFor();
     assert.equal(requests, 0);
-    // No live maps service exists. Remaining UI is exercised with a synthetic resolver.
+    // Exercise provider states with synthetic responses, never paid Maps calls.
     mockRouting = true;
-    await page.getByLabel('California city or neighborhood', { exact: true }).fill('Synthetic');
-    await page.getByRole('button', { name: 'Synthetic California neighborhood', exact: true }).click();
+    await page.getByLabel('California city or neighborhood', { exact: true }).fill('No such city');
+    await page.locator('#location-status').filter({ hasText: 'No California city' }).waitFor();
+    await page.getByLabel('California city or neighborhood', { exact: true }).fill('Provider failure');
+    await page.locator('#location-status').filter({ hasText: 'could not complete' }).waitFor();
+    await page.getByRole('button', { name: 'Retry location search', exact: true }).waitFor();
+    await page.getByLabel('California city or neighborhood', { exact: true }).fill('Lake Forest');
+    await page.getByRole('button', { name: 'Lake Forest, CA, USA', exact: true }).click();
+    await page.locator('#location-status').filter({ hasText: 'Approximate city-level driving distance' }).waitFor();
+    // Editing selected free text invalidates the selection and its tier.
+    await page.getByLabel('California city or neighborhood', { exact: true }).fill('Unselected text');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Select a California' }).waitFor();
+    await page.getByLabel('California city or neighborhood', { exact: true }).fill('Lake Forest');
+    await page.getByRole('button', { name: 'Lake Forest, CA, USA', exact: true }).click();
+    await page.locator('#location-status').filter({ hasText: 'Approximate city-level driving distance' }).waitFor();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('checkbox', { name: 'Furniture', exact: true }).check();
     await page.getByRole('checkbox', { name: 'Appliances', exact: true }).check();
@@ -146,5 +165,5 @@ try {
     assert.equal(await page.locator('.spiralEntry').evaluate((el) => getComputedStyle(el).animationName), 'spiral-in');
     assert.deepEqual(errors, []); await context.close();
   }
-  console.log('PASS: synthetic desktop/mobile flow, maps blocker/no fallback, mocked location resolution, multi-select transport/display, 10-photo optimization within unchanged budget, preserved context/answers, failed reassessment/retry, duplicate/stale protection, unbounded withholding, full Start Over/header reset, reduced-motion and spiral animation, logo rendering, collapsed diagnostics, no overflow. Routing and analysis mocked, not live maps/provider verification.');
+  console.log('PASS: synthetic desktop/mobile flow, missing-config/no-results/provider-error states, mocked Lake Forest selection, approximate route labeling, signed-proof transport and free-text invalidation, multi-select, 10-photo optimization, context/answers, failure/retry, duplicate/stale protection and reset. Routing and analysis mocked, not live Maps/provider verification.');
 } finally { await browser.close(); }

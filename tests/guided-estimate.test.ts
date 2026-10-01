@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+vi.mock('server-only', () => ({}));
 import { EMPTY_DETAILS, guidedForm, guidedNotes, ITEM_LOCATIONS, STEPS, stepProblem } from '../app/lib/guided-estimate';
 import { validateEstimateForm } from '../app/lib/request-validation';
 import { clarificationQuestions } from '../app/lib/clarification';
@@ -6,10 +7,10 @@ import { priceJob } from '../app/lib/pricing';
 import { buildAnalysisPrompt } from '../app/lib/openai-analysis';
 import { makeForm, pngFile, sampleAnalysis, sampleInputs } from './helpers';
 import { GET } from '../app/api/estimate-location/route';
-import { isResolvedLocation, LOCATION_BLOCKER, tierForDrivingMiles } from '../app/lib/location-resolution';
+import { isResolvedLocation, LOCATION_BLOCKER, LOCATION_REQUIRED, tierForDrivingMiles } from '../app/lib/location-resolution';
 import { determineQuoteStatus } from '../app/lib/quote-status';
 
-const details = { ...EMPTY_DETAILS, location: { id: 'synthetic', label: 'Synthetic area', state: 'CA' as const, drivingMiles: 20 }, jobTypes: ['furniture', 'appliances'], itemLocation: 'Garage', carryDistance: 'short', stairs: 'none', notes: 'All shown items included; all items easily carried by one person.' };
+const details = { ...EMPTY_DETAILS, location: { id: 'synthetic', label: 'Synthetic area', state: 'CA' as const, drivingMiles: 20, latitude: 33.6, longitude: -117.6, token: 'synthetic' }, jobTypes: ['furniture', 'appliances'], itemLocation: 'Garage', carryDistance: 'short', stairs: 'none', notes: 'All shown items included; all items easily carried by one person.' };
 describe('guided estimate field mapping', () => {
   it('requires explicit selections and never derives route facts from a location', () => {
     expect(STEPS).toHaveLength(6);
@@ -31,8 +32,9 @@ describe('guided estimate field mapping', () => {
     expect(form.get('notes')).toContain(details.notes);
     expect(form.getAll('jobType')).toEqual(['furniture', 'appliances']);
     for (let i = 0; i < 10; i++) form.append('photos', pngFile(`synthetic-${i}.png`));
-    // New guided submissions fail closed until a real routing adapter is configured.
-    expect(await validateEstimateForm(form)).toMatchObject({ ok: false, error: LOCATION_BLOCKER });
+    // Shared validation cannot accept browser routing evidence without server verification.
+    expect(await validateEstimateForm(form)).toMatchObject({ ok: false, error: LOCATION_REQUIRED });
+    expect((await validateEstimateForm(form, details.location)).ok).toBe(true);
     // The existing internal API contract still accepts explicitly supplied staff tiers.
     form.delete('workflow');
     const result = await validateEstimateForm(form);
@@ -62,13 +64,13 @@ describe('guided estimate field mapping', () => {
     expect(priceJob(sampleInputs({ workers: null }), analysis)).toEqual(priceJob(sampleInputs({ workers: 6 }), analysis));
   });
   it('does not route by city name, invalid distance or out-of-area result; missing service returns no suggestions', async () => {
-    const response = await GET(); expect(response.status).toBe(503); expect(response.headers.get('cache-control')).toBe('no-store');
+    const response = await GET(new Request('http://localhost/api/estimate-location?query=Lake&session=synthetic-session-123')); expect(response.status).toBe(503); expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ status: 'blocked', error: LOCATION_BLOCKER, suggestions: [] });
     for (const miles of [-1, NaN, Infinity, 65.01]) expect(tierForDrivingMiles(miles)).toBeNull();
     expect([0, 25, 25.01, 40, 40.01, 65].map(tierForDrivingMiles)).toEqual(['under25', 'under25', '25to40', '25to40', '40to65', '40to65']);
     expect(isResolvedLocation({ label: 'Rancho Mission Viejo', state: 'CA' })).toBe(false);
     expect(isResolvedLocation({ ...details.location, state: 'NV' })).toBe(false);
-    expect(() => guidedForm({ ...details, location: null })).toThrow(LOCATION_BLOCKER);
+    expect(() => guidedForm({ ...details, location: null })).toThrow(LOCATION_REQUIRED);
   });
   it('rejects duplicate/invalid multi-select entries and applies cardboard-only rules only to an exclusively cardboard job', async () => {
     for (const extra of ['mixed junk', 'invented category']) {

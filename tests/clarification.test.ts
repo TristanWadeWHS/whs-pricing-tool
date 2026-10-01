@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('server-only', () => ({}));
 import { makeForm, sampleAnalysis, sampleInputs } from './helpers';
 import { clarificationQuestions, issueClarification, verifyClarification, type ClarificationAnswer } from '../app/lib/clarification';
 import { validateEstimateForm } from '../app/lib/request-validation';
@@ -35,8 +36,8 @@ describe('internal pricing and firm-quote separation', () => {
   });
   it('rejects a forged guided tier before any provider call when routing is unavailable', async () => {
     const form = makeForm(); form.set('workflow', 'guided-location-v2');
-    const { status, body } = await post(form); expect(status).toBe(400);
-    expect(body.error).toContain('routing are not configured'); expect(body.pricing).toBeUndefined();
+    const { status, body } = await post(form); expect(status).toBe(503);
+    expect(body.error).toContain('GOOGLE_MAPS_API_KEY'); expect(body.pricing).toBeNull();
     expect(parseMock).not.toHaveBeenCalled();
   });
   it('uses reconciled brief answers for adjustment pricing and explanations at a fixed 55%', async () => {

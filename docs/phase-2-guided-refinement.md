@@ -2,6 +2,8 @@
 
 Draft, not release-ready. No merge or Production deployment authorized.
 
+Location follow-up: [Google Maps setup and focused verification](./phase-2-location-provider.md) supersedes the placeholder-endpoint section below. That section is preserved as the original candidate record, not current implementation guidance.
+
 ## Verified baseline and preservation
 
 - PR #9 is closed/merged. Preserved head `55d2d8d9d3a29e647670e048bdd03a523986b5d1`, branch `codex/shadow-inventory-readiness`; merged through integration branch `codex/internal-pilot-release-55d2d8d`, then PR #10. This remains the latest candidate explicitly confirmed manually tested in the task history.

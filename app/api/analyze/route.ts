@@ -10,6 +10,7 @@ import { safeShadowDiagnostics } from '../../lib/shadow-diagnostics';
 import { shadowPreviewEnabled } from '../../lib/shadow-schema';
 import { assessInternalEstimate, INTERNAL_ESTIMATE_LABEL } from '../../lib/internal-estimate';
 import { normalizeClarificationAnswer } from '../../lib/clarification-facts';
+import { LocationError, verifyLocationToken } from '../../lib/location-provider';
 
 export const runtime = 'nodejs';
 
@@ -26,7 +27,13 @@ export async function POST(req: NextRequest) {
     console.info('[analyze] request received', { requestId });
 
     const form = await req.formData();
-    const validation = await validateEstimateForm(form);
+    let location;
+    try { if (form.get('workflow') === 'guided-location-v2') location = verifyLocationToken(form.get('locationToken')); }
+    catch (error) {
+      return NextResponse.json({ status: 'analysis_failed', analysis: null, pricing: null,
+        error: error instanceof LocationError ? error.message : 'Location verification failed.' }, { status: error instanceof LocationError ? error.status : 400 });
+    }
+    const validation = await validateEstimateForm(form, location);
     if (validation.ok === false) {
       console.warn('[analyze] request validation failed', {
         requestId,

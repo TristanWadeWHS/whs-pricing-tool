@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CARRIES, DISTANCES, EMPTY_DETAILS, guidedForm, guidedNotes, ITEM_LOCATIONS, JOB_TYPES, STAIRS, STEPS, stepProblem, type GuidedDetails } from './lib/guided-estimate';
 import { MAX_ESTIMATE_PHOTOS } from './lib/estimate-limits';
 import { LocationSearch } from './location-search';
-import { tierForDrivingMiles, LOCATION_BLOCKER } from './lib/location-resolution';
+import { tierForDrivingMiles, LOCATION_REQUIRED } from './lib/location-resolution';
 
 export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount, onPhotos, onAnalyze }: {
   disabled: boolean; photoStatus: string; photoMessage: string; photoCount: number;
@@ -69,7 +69,8 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
             <div><dt>Photos</dt><dd>{photoCount} selected {photoStatus === 'ready' ? 'and optimized' : '(not ready)'}</dd></div>
           </dl>
           <p className="helperText">{guidedNotes(details).length}/1000 context characters. Only the shown and confirmed removal scope will be submitted.</p>
-          {!details.location && <p role="alert">{LOCATION_BLOCKER}</p>}
+          {details.location && <p className="helperText">Approximate city-level route: {details.location.drivingMiles.toFixed(1)} miles from Rancho Mission Viejo. Not exact customer-address mileage. <span translate="no">Google Maps</span></p>}
+          {!details.location && <p role="alert">{LOCATION_REQUIRED}</p>}
         </>}
         {error && <p role="alert" className="photoErrorText">{error}</p>}
         <div className="stepActions">
