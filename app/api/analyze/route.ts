@@ -10,7 +10,6 @@ import { safeShadowDiagnostics } from '../../lib/shadow-diagnostics';
 import { shadowPreviewEnabled } from '../../lib/shadow-schema';
 import { assessInternalEstimate, INTERNAL_ESTIMATE_LABEL } from '../../lib/internal-estimate';
 import { normalizeClarificationAnswer } from '../../lib/clarification-facts';
-import { LocationError, verifyLocationToken } from '../../lib/location-provider';
 
 export const runtime = 'nodejs';
 
@@ -27,14 +26,12 @@ export async function POST(req: NextRequest) {
     console.info('[analyze] request received', { requestId });
 
     const form = await req.formData();
-    let location;
-    try { if (form.get('workflow') === 'guided-location-v2') location = verifyLocationToken(form.get('locationToken')); }
-    catch (error) {
-      return NextResponse.json({ status: 'analysis_failed', analysis: null, pricing: null,
-        error: error instanceof LocationError ? error.message : 'Location verification failed.' }, { status: error instanceof LocationError ? error.status : 400 });
-    }
-    const validation = await validateEstimateForm(form, location);
+    const validation = await validateEstimateForm(form);
     if (validation.ok === false) {
+      if (validation.reviewLocation) return NextResponse.json({ status: 'needs_manager_review', estimateKind: 'withheld',
+        analysis: null, pricing: null, inputs: { location: validation.reviewLocation, distanceTier: null }, priceWithheld: true, firmQuoteEligible: false,
+        statusReasons: [validation.reviewLocation.label, validation.error, 'Your photos and details are retained. Staff must verify the job distance tier before pricing. No AI analysis was requested.'] },
+        { headers: { 'Cache-Control': 'no-store' } });
       console.warn('[analyze] request validation failed', {
         requestId,
         status: validation.status,

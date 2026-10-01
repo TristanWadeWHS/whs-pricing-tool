@@ -1,0 +1,31 @@
+{
+  "provider": "GeoNames",
+  "license": "CC BY 4.0",
+  "retrieved": "2026-10-01",
+  "placesUrl": "https://download.geonames.org/export/dump/US.zip",
+  "countiesUrl": "https://download.geonames.org/export/dump/admin2Codes.txt",
+  "placesSha256": "091fa723bd01f5a20572f6610636e374081538e75ceb1c5306ff37d143f61497",
+  "countiesSha256": "63a82be925b8704abae683a89e32f40b22f618a93efc4e676e912873f8a3be20",
+  "subsetSha256": "7405373487e3c9940fe46b669fc9e87eb0790ab57c6f0d75458ebc20cb0a7d10",
+  "countyCodes": [
+    "025",
+    "029",
+    "037",
+    "059",
+    "065",
+    "071",
+    "073",
+    "079",
+    "083",
+    "111"
+  ],
+  "featureCodes": [
+    "PPL",
+    "PPLA",
+    "PPLA2",
+    "PPLA3",
+    "PPLA4",
+    "PPLX"
+  ],
+  "transforms": "US/CA, listed counties and populated-place feature codes; ASCII city/county names; ID sort. Coordinates and unrelated fields omitted. Not a route dataset."
+}

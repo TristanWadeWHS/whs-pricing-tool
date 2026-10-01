@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CARRIES, DISTANCES, EMPTY_DETAILS, guidedForm, guidedNotes, ITEM_LOCATIONS, JOB_TYPES, STAIRS, STEPS, stepProblem, type GuidedDetails } from './lib/guided-estimate';
 import { MAX_ESTIMATE_PHOTOS } from './lib/estimate-limits';
 import { LocationSearch } from './location-search';
-import { tierForDrivingMiles, LOCATION_REQUIRED } from './lib/location-resolution';
+import { LOCATION_REQUIRED } from './lib/location-resolution';
 
 export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount, onPhotos, onAnalyze }: {
   disabled: boolean; photoStatus: string; photoMessage: string; photoCount: number;
@@ -63,20 +63,20 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
         {step === 5 && <>
           <label className="fieldLabel">Anything else we should know?<textarea name="notes" maxLength={800} value={details.notes} onChange={(e) => update('notes', e.target.value)} placeholder="Contents of boxes, items to leave behind, handling equipment needed, or confirmed dimensions..." /></label>
           <dl className="reviewList">
-            <div><dt>Location</dt><dd>{details.location?.label || details.area || 'Location unresolved'} / {details.location ? DISTANCES.find(([value]) => value === tierForDrivingMiles(details.location!.drivingMiles))?.[1] : 'No distance tier resolved'}</dd></div>
+            <div><dt>Location</dt><dd>{details.location?.label || details.area || 'Location unresolved'} / {details.location?.distanceTier ? DISTANCES.find(([value]) => value === details.location!.distanceTier)?.[1] : 'Staff review required - no verified tier'}</dd></div>
             <div><dt>Job types</dt><dd>{details.jobTypes.join(', ')}</dd></div>
             <div><dt>Access</dt><dd>{details.itemLocation} / {CARRIES.find(([value]) => value === details.carryDistance)?.[1]} / {STAIRS.find(([value]) => value === details.stairs)?.[1]}</dd></div>
             <div><dt>Photos</dt><dd>{photoCount} selected {photoStatus === 'ready' ? 'and optimized' : '(not ready)'}</dd></div>
           </dl>
           <p className="helperText">{guidedNotes(details).length}/1000 context characters. Only the shown and confirmed removal scope will be submitted.</p>
-          {details.location && <p className="helperText">Approximate city-level route: {details.location.drivingMiles.toFixed(1)} miles from Rancho Mission Viejo. Not exact customer-address mileage. <span translate="no">Google Maps</span></p>}
+          {details.location && <p className="helperText">{details.location.reason} {details.location.representativeDrivingMiles !== null ? `Approximate city-level route: ${details.location.representativeDrivingMiles.toFixed(1)} driving miles; not exact customer-address mileage.` : 'No representative route distance is recorded.'}</p>}
           {!details.location && <p role="alert">{LOCATION_REQUIRED}</p>}
         </>}
         {error && <p role="alert" className="photoErrorText">{error}</p>}
         <div className="stepActions">
           {step > 0 && <button type="button" className="secondary" onClick={() => { setError(''); setStep(step - 1); }}>Back</button>}
           <button type="submit" disabled={photoStatus === 'optimizing' || (step >= 4 && photoStatus !== 'ready') || (step === 5 && !details.location)}>
-            {step === 0 ? 'Start estimate' : step === 5 ? 'Analyze Job' : 'Continue'}
+            {step === 0 ? 'Start estimate' : step === 5 ? details.location?.status === 'staff_review_required' ? 'Check review requirements' : 'Analyze Job' : 'Continue'}
           </button>
         </div>
       </fieldset>

@@ -7,10 +7,11 @@ import { priceJob } from '../app/lib/pricing';
 import { buildAnalysisPrompt } from '../app/lib/openai-analysis';
 import { makeForm, pngFile, sampleAnalysis, sampleInputs } from './helpers';
 import { GET } from '../app/api/estimate-location/route';
-import { isResolvedLocation, LOCATION_BLOCKER, LOCATION_REQUIRED, tierForDrivingMiles } from '../app/lib/location-resolution';
+import { isResolvedLocation, LOCATION_REQUIRED, tierForDrivingMiles } from '../app/lib/location-resolution';
+import { resolveCity } from '../app/lib/city-directory';
 import { determineQuoteStatus } from '../app/lib/quote-status';
 
-const details = { ...EMPTY_DETAILS, location: { id: 'synthetic', label: 'Synthetic area', state: 'CA' as const, drivingMiles: 20, latitude: 33.6, longitude: -117.6, token: 'synthetic' }, jobTypes: ['furniture', 'appliances'], itemLocation: 'Garage', carryDistance: 'short', stairs: 'none', notes: 'All shown items included; all items easily carried by one person.' };
+const details = { ...EMPTY_DETAILS, location: resolveCity('geonames:5364514')!, jobTypes: ['furniture', 'appliances'], itemLocation: 'Garage', carryDistance: 'short', stairs: 'none', notes: 'All shown items included; all items easily carried by one person.' };
 describe('guided estimate field mapping', () => {
   it('requires explicit selections and never derives route facts from a location', () => {
     expect(STEPS).toHaveLength(6);
@@ -27,16 +28,16 @@ describe('guided estimate field mapping', () => {
   });
   it('sends exact enums and context, without guessed workers or inferred driving distances', async () => {
     const form = guidedForm({ ...details, area: 'Synthetic area' });
-    expect(form.get('distanceTier')).toBe('under25'); expect(form.get('carryDistance')).toBe('short'); expect(form.get('stairs')).toBe('none');
+    expect(form.has('distanceTier')).toBe(false); expect(form.get('cityId')).toBe(details.location.id); expect(form.get('carryDistance')).toBe('short'); expect(form.get('stairs')).toBe('none');
     expect(form.has('workers')).toBe(false); expect(form.get('notes')).toContain('Item location: Garage.');
     expect(form.get('notes')).toContain(details.notes);
     expect(form.getAll('jobType')).toEqual(['furniture', 'appliances']);
     for (let i = 0; i < 10; i++) form.append('photos', pngFile(`synthetic-${i}.png`));
-    // Shared validation cannot accept browser routing evidence without server verification.
-    expect(await validateEstimateForm(form)).toMatchObject({ ok: false, error: LOCATION_REQUIRED });
-    expect((await validateEstimateForm(form, details.location)).ok).toBe(true);
+    // Selected cities remain usable without inventing unknown distances.
+    expect(await validateEstimateForm(form)).toMatchObject({ ok: false, reviewLocation: details.location });
     // The existing internal API contract still accepts explicitly supplied staff tiers.
     form.delete('workflow');
+    form.delete('cityId'); form.delete('directoryVersion'); form.delete('routeVersion'); form.set('distanceTier', 'under25');
     const result = await validateEstimateForm(form);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -63,13 +64,13 @@ describe('guided estimate field mapping', () => {
     expect(clarificationQuestions(concern, '', [{ id: 'contents', answer: '', notSure: true }]).length).toBeGreaterThan(0);
     expect(priceJob(sampleInputs({ workers: null }), analysis)).toEqual(priceJob(sampleInputs({ workers: 6 }), analysis));
   });
-  it('does not route by city name, invalid distance or out-of-area result; missing service returns no suggestions', async () => {
-    const response = await GET(new Request('http://localhost/api/estimate-location?query=Lake&session=synthetic-session-123')); expect(response.status).toBe(503); expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toEqual({ status: 'blocked', error: LOCATION_BLOCKER, suggestions: [] });
+  it('offers local cities without credentials, without treating names as routing evidence', async () => {
+    const response = await GET(new Request('http://localhost/api/estimate-location?query=Lake%20Forest')); expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
+    expect((await response.json()).suggestions[0].label).toBe('Lake Forest, Orange County, CA');
     for (const miles of [-1, NaN, Infinity, 65.01]) expect(tierForDrivingMiles(miles)).toBeNull();
     expect([0, 25, 25.01, 40, 40.01, 65].map(tierForDrivingMiles)).toEqual(['under25', 'under25', '25to40', '25to40', '40to65', '40to65']);
     expect(isResolvedLocation({ label: 'Rancho Mission Viejo', state: 'CA' })).toBe(false);
-    expect(isResolvedLocation({ ...details.location, state: 'NV' })).toBe(false);
+    expect(isResolvedLocation({ ...details.location, id: 'Lake Forest' })).toBe(false);
     expect(() => guidedForm({ ...details, location: null })).toThrow(LOCATION_REQUIRED);
   });
   it('rejects duplicate/invalid multi-select entries and applies cardboard-only rules only to an exclusively cardboard job', async () => {

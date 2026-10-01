@@ -1,5 +1,7 @@
 # Phase 2 location adapter (configuration pending)
 
+Historical record: the stacked [local city directory phase](./local-city-directory.md) replaces this runtime Maps integration. Do not configure Maps for that branch; this document describes the preserved parent Preview only.
+
 ## Baseline and rollback
 
 Focused follow-up on `codex/phase-2-guided-refinement`, draft PR #12 stacked on #11 (`codex/phase-2-guided-estimator`). Starting SHA: `a888bb69fa1f2353cf21e29c000138d43acc2525`.

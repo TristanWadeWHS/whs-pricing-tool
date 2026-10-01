@@ -34,10 +34,10 @@ describe('internal pricing and firm-quote separation', () => {
     expect(parseMock.mock.lastCall![0].input[0].content[0].text).toContain('"jobTypes":["furniture","appliances"]');
     expect(body.firmQuoteEligible).toBe(false);
   });
-  it('rejects a forged guided tier before any provider call when routing is unavailable', async () => {
+  it('rejects the obsolete Maps workflow before any provider call', async () => {
     const form = makeForm(); form.set('workflow', 'guided-location-v2');
-    const { status, body } = await post(form); expect(status).toBe(503);
-    expect(body.error).toContain('GOOGLE_MAPS_API_KEY'); expect(body.pricing).toBeNull();
+    const { status, body } = await post(form); expect(status).toBe(400);
+    expect(body.error).toContain('Location workflow changed'); expect(body.pricing).toBeUndefined();
     expect(parseMock).not.toHaveBeenCalled();
   });
   it('uses reconciled brief answers for adjustment pricing and explanations at a fixed 55%', async () => {
