@@ -26,6 +26,19 @@ afterEach(() => {
 });
 
 describe('/api/analyze route', () => {
+  it('returns $330 for a 60% point despite model risks, with no firm quote or invented range', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    parseMock.mockResolvedValue({ output_parsed: sampleAnalysis({ estimatedLoadPercent: 60, estimatedLoadRange: '60%',
+      estimatedLoadCount: 0.6, confidencePercent: 73, heavyDebrisRisk: 'high', difficulty: 'hard',
+      observedFacts: ['The item requires two people.'] }) });
+    const response = await POST(makeAnalyzeRequest([jpegFile('synthetic.jpg', 1024)]) as any);
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.pricing).toMatchObject({ baseLoadPrice: 330, suggestedQuote: 330, adjustments: 0,
+      recommendedRange: '$330', priceLow: 330, priceHigh: 330, customerMessage: null });
+    expect(body.firmQuoteEligible).toBe(false);
+    expect(body.loadUnits).toMatchObject({ cubicYards: 7.2, trailerEquivalents: 0.6 });
+  });
   it('returns priced output for a valid mocked OpenAI structured response', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.OPENAI_MODEL = 'test-model';

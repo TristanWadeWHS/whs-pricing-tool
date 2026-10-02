@@ -75,14 +75,14 @@ describe('guided estimate field mapping', () => {
     expect(isResolvedLocation({ ...details.location, id: 'Lake Forest' })).toBe(false);
     expect(() => guidedForm({ ...details, location: null })).toThrow(LOCATION_REQUIRED);
   });
-  it('rejects duplicate/invalid multi-select entries and applies cardboard-only rules only to an exclusively cardboard job', async () => {
+  it('rejects duplicate/invalid multi-select entries without applying automatic job-type discounts', async () => {
     for (const extra of ['mixed junk', 'invented category']) {
       const form = makeForm(); form.append('jobType', extra); expect((await validateEstimateForm(form)).ok).toBe(false);
     }
     const mixed = sampleInputs({ jobType: 'cardboard only, appliances', jobTypes: ['cardboard only', 'appliances'] });
     expect(priceJob(mixed, sampleAnalysis()).adjustments).toBe(0);
     expect(determineQuoteStatus(mixed, sampleAnalysis()).status).toBe('needs_manager_review');
-    expect(priceJob(sampleInputs({ jobType: 'cardboard only', jobTypes: ['cardboard only'] }), sampleAnalysis()).adjustments).toBe(-40);
+    expect(priceJob(sampleInputs({ jobType: 'cardboard only', jobTypes: ['cardboard only'] }), sampleAnalysis()).adjustments).toBe(0);
   });
   it('ignores unsupported boilerplate and negated observations but preserves essential unresolved scope and unknowns', () => {
     const generic = sampleAnalysis({ questionsToAsk: ['Anything hidden?', 'What is inside the boxes?', 'Need disassembly?'], uncertaintyNotes: ['Maybe hidden material.', 'Unknown contents.'] });

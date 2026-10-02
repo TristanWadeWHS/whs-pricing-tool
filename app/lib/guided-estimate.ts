@@ -1,4 +1,5 @@
 import { ESTIMATE_LIMITS } from './request-validation';
+import { validStaffAddOns } from './pricing';
 import { isResolvedLocation, LOCATION_REQUIRED, type ResolvedLocation } from './location-resolution';
 
 export const STEPS = ['Welcome', 'Location', 'Job type', 'Access', 'Photos', 'Review'] as const;
@@ -7,7 +8,7 @@ export const CARRIES = [['curbside', 'Curbside / driveway'], ['short', 'Short ca
 export const STAIRS = [['none', 'No stairs'], ['some', 'Some stairs'], ['heavy', 'Heavy stairs / upstairs furniture']] as const;
 export const ITEM_LOCATIONS = ['Curbside', 'Driveway', 'Garage', 'First floor', 'Second floor', 'Yard', 'Other / multiple areas'] as const;
 export const JOB_TYPES = ESTIMATE_LIMITS.supportedJobTypes;
-export type GuidedDetails = { area: string; location: ResolvedLocation | null; staffDistanceTier: string; jobTypes: string[]; itemLocation: string; carryDistance: string; stairs: string; notes: string };
+export type GuidedDetails = { area: string; location: ResolvedLocation | null; staffDistanceTier: string; staffAddOns?: string[]; jobTypes: string[]; itemLocation: string; carryDistance: string; stairs: string; notes: string };
 export const EMPTY_DETAILS: GuidedDetails = { area: '', location: null, staffDistanceTier: '', jobTypes: [], itemLocation: '', carryDistance: '', stairs: '', notes: '' };
 
 export function guidedNotes(details: GuidedDetails) {
@@ -20,6 +21,7 @@ export function stepProblem(step: number, details: GuidedDetails, photosReady: b
   if (step === 3 && (!ITEM_LOCATIONS.some((value) => value === details.itemLocation) || !CARRIES.some(([value]) => value === details.carryDistance) || !STAIRS.some(([value]) => value === details.stairs))) return 'Confirm the item location, carry distance and stairs. Unknown access needs staff confirmation, not a guessed charge.';
   if (step === 4 && !photosReady) return 'Choose photos and wait for optimization to finish.';
   if (step === 5 && guidedNotes(details).length > ESTIMATE_LIMITS.maxNotesLength) return 'Shorten the notes before continuing.';
+  if (step === 5 && !validStaffAddOns(details, details.staffAddOns ?? [])) return 'Review the selected staff-approved access add-ons.';
   if (step === 5 && details.location?.status === 'staff_review_required'
     && !DISTANCES.some(([tier]) => tier === details.staffDistanceTier)) return 'Select a staff-confirmed distance tier before analysis.';
   return null;
@@ -36,5 +38,6 @@ export function guidedForm(details: GuidedDetails) {
   for (const type of details.jobTypes) form.append('jobType', type);
   for (const key of ['carryDistance', 'stairs'] as const) form.set(key, details[key]);
   form.set('notes', guidedNotes(details));
+  for (const id of details.staffAddOns ?? []) form.append('staffAddOn', id);
   return form;
 }

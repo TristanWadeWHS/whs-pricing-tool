@@ -50,7 +50,7 @@ describe('internal pricing and firm-quote separation', () => {
       { id: 'contents', answer: 'Lightweight household goods; all items easily carried by one person.', notSure: false },
       { id: 'hidden', answer: 'nothing else', notSure: false }
     ]));
-    expect(body.pricing.adjustments).toBe(0); expect(body.pricing.recommendedRange).toBe('$270–$350');
+    expect(body.pricing.adjustments).toBe(0); expect(body.pricing.recommendedRange).toBe('$220–$330');
     expect(body.priceDrivers.find((driver: { topic: string }) => driver.topic === 'handling').message).toContain('Handling: low');
     expect(body.priceDrivers.find((driver: { topic: string }) => driver.topic === 'hidden').state).toBe('resolved');
     expect(body.loadUnits.cubicYards).toBe(6.6); expect(body.loadUnits.trailerEquivalents).toBe(0.55);
