@@ -1,4 +1,4 @@
-import { JobInputs } from './pricing';
+import { JobInputs, validStaffAddOns } from './pricing';
 import { IMAGE_TOO_LARGE_MESSAGE, MAX_ESTIMATE_IMAGE_BYTES, MAX_ESTIMATE_PHOTOS, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from './estimate-limits';
 import { LOCATION_REQUIRED, type ResolvedLocation } from './location-resolution';
 import { resolveCity, DIRECTORY_VERSION, ROUTE_VERSION } from './city-directory';
@@ -79,6 +79,8 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
   const selectedTypes = form.getAll('jobType');
   const carryDistance = String(form.get('carryDistance') || '');
   const stairs = String(form.get('stairs') || '');
+  const staffAddOns = form.getAll('staffAddOn');
+  if (!validStaffAddOns({ carryDistance, stairs }, staffAddOns)) return invalid('Select distinct approved access add-ons matching the entered access.');
   const notes = String(form.get('notes') || '').trim();
   // The guided form does not collect crew size. Missing is unknown, not one worker.
   const workers = form.has('workers') ? Number(form.get('workers')) : null;
@@ -148,6 +150,7 @@ export async function validateEstimateForm(form: FormData): Promise<ValidationRe
         stairs: stairs as JobInputs['stairs'],
         workers,
         notes,
+        ...(staffAddOns.length ? { staffAddOns } : {}),
         ...(city ? { location: city, distanceTierSource: staffTier ? 'staff_confirmed' as const : 'verified_city_route' as const } : {})
       },
       photos

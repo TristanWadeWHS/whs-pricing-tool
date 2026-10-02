@@ -197,6 +197,8 @@ export default function Home() {
         <div className="quoteBox">
           <p>{result.estimateLabel}</p>
           <h2>{result.pricing.recommendedRange}</h2>
+          <p>{result.pricing.calculationNote}</p>
+          {result.pricing.lineItems?.length > 0 && <ul>{result.pricing.lineItems.map((item: { id: string; label: string; amount: number }) => <li key={item.id}>Staff-approved {item.label}: +${item.amount}</li>)}</ul>}
         </div>
         <details open><summary>Review status</summary><p>{formatStatus(result.status)}</p>
         <p><b>Job types:</b> {(result.inputs?.jobTypes ?? [result.inputs?.jobType]).filter(Boolean).join(', ')}</p>
@@ -293,6 +295,7 @@ export default function Home() {
             <div>
               <h3>Pricing Logic</h3>
               <p><b>Minimum:</b> ${result.pricing.minimumPrice}</p>
+              <p><b>Volume calculation:</b> {result.analysis.estimatedLoadPercent}% / 100 x $550 = ${result.pricing.volumeBasePrice}</p>
               <p><b>Base load price:</b> ${result.pricing.baseLoadPrice}</p>
               <p><b>Adjustments:</b> ${result.pricing.adjustments}</p>
               <ul>{result.pricing.adjustmentNotes.map((x: string) => <li key={x}>{x}</li>)}</ul>

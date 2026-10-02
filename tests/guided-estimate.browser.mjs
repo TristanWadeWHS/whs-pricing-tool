@@ -2,12 +2,21 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 const require = createRequire(import.meta.url);
+const ts = require('typescript');
+const pricingModule = { exports: {} };
+runInNewContext(ts.transpileModule(readFileSync(new URL('../app/lib/pricing.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: pricingModule.exports });
+const { priceJob } = pricingModule.exports;
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const analysis = { confidencePercent: 73, estimatedLoadPercent: 55, estimatedLoadCount: 0.55, visibleItems: ['Synthetic sealed boxes'], observedFacts: ['Synthetic closed containers'], photoAngleQuality: 'good', materialType: 'mixed junk', difficulty: 'easy', heavyDebrisRisk: 'low' };
+const analysis = { confidencePercent: 73, estimatedLoadPercent: 60, estimatedLoadRange: '60%', estimatedLoadCount: 0.6, visibleItems: ['Synthetic sealed boxes'], observedFacts: ['The item requires two people.'], photoAngleQuality: 'good', materialType: 'mixed junk', difficulty: 'hard', heavyDebrisRisk: 'high' };
 const browser = await chromium.launch({ headless: true, channel: 'msedge' });
 try {
   for (const width of [1280, 390]) {
+    const approved = width === 390;
+    const expectedPoint = approved ? '$420' : '$330';
+    const expectedRange = approved ? '$365\u2013$475' : '$275\u2013$385';
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce', httpCredentials: { username: 'staff', password: 'synthetic-preview-test' } });
     const page = await context.newPage(); page.setDefaultTimeout(30000);
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
@@ -16,13 +25,17 @@ try {
     await page.route('**/api/historical-reference', (route) => route.fulfill({ json: { status: 'abstained', reasons: ['Synthetic test only.'] } }));
     await page.route('**/api/analyze', async (route) => {
       const r = route.request(); const f = await new Request('http://synthetic.test', { method: 'POST', headers: r.headers(), body: r.postDataBuffer() }).formData();
-      const context = { city: f.get('cityId'), tier: f.get('staffDistanceTier'), notes: f.get('notes'), types: f.getAll('jobType'), photos: await Promise.all(f.getAll('photos').map(async (p) => Buffer.from(await p.arrayBuffer()).toString('base64'))) };
+      const context = { city: f.get('cityId'), tier: f.get('staffDistanceTier'), notes: f.get('notes'), types: f.getAll('jobType'), addOns: f.getAll('staffAddOn'), photos: await Promise.all(f.getAll('photos').map(async (p) => Buffer.from(await p.arrayBuffer()).toString('base64'))) };
       assert.equal(context.tier, '25to40');
       if (submissions++ === 0) original = context;
       else { assert.deepEqual(context, original); assert(JSON.parse(f.get('clarification')).answers.some((a) => a.id === 'contents' && a.answer === 'lightweight decorations')); }
+      assert.deepEqual(context.addOns, approved ? ['carry_long'] : []);
+      const model = submissions > 1 ? { ...analysis, estimatedLoadRange: '50-70%' } : analysis;
+      const pricing = priceJob({ distanceTier: f.get('staffDistanceTier'), carryDistance: f.get('carryDistance'), stairs: f.get('stairs'), staffAddOns: context.addOns }, model);
+      assert.equal(pricing.baseLoadPrice, 330);
       return route.fulfill({ json: { status: 'conditional_estimate', estimateKind: 'provisional', priceWithheld: false, firmQuoteEligible: false,
-        estimateLabel: 'Internal estimate - requires review before quoting', analysis, inputs: { location: { label: 'Lake Forest, Orange County, CA', county: 'Orange County' }, distanceTier: '25to40', distanceTierSource: 'staff_confirmed', jobTypes: ['furniture', 'appliances'], stairs: 'none' },
-        statusReasons: ['Staff review before quoting.'], pricing: { suggestedQuote: 310, recommendedRange: '$270 - $350', minimumPrice: 145, baseLoadPrice: 302.5, adjustments: 0, adjustmentNotes: [], customerMessage: null },
+        estimateLabel: 'Internal estimate - requires review before quoting', analysis: model, inputs: { location: { label: 'Lake Forest, Orange County, CA', county: 'Orange County' }, distanceTier: '25to40', distanceTierSource: 'staff_confirmed', jobTypes: ['furniture', 'appliances'], stairs: 'none' },
+        statusReasons: ['Staff review before quoting.'], pricing: { ...pricing, customerMessage: null },
         clarification: submissions === 1 ? { token: 'synthetic-signed-context', history: [], round: 1, optional: true, canSkip: true, questions: [{ id: 'contents', text: 'What is inside the sealed boxes?' }] } : null } });
     });
     await page.goto(process.env.SMOKE_URL || 'http://127.0.0.1:3017');
@@ -56,7 +69,7 @@ try {
     await page.getByRole('checkbox', { name: 'Appliances', exact: true }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByRole('radio', { name: 'Garage', exact: true }).check();
-    await page.getByRole('radio', { name: 'Short carry', exact: true }).check();
+    await page.getByRole('radio', { name: approved ? 'Long carry / backyard / difficult access' : 'Short carry', exact: true }).check();
     await page.getByRole('radio', { name: 'No stairs', exact: true }).check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 1600; const x = c.getContext('2d'); x.fillStyle = '#dce8ef'; x.fillRect(0, 0, 1600, 1600); x.fillStyle = '#436451'; x.fillRect(200, 200, 500, 400); return c.toDataURL().split(',')[1]; });
@@ -64,6 +77,11 @@ try {
     await page.waitForFunction(() => !document.querySelector('.stepActions button[type=submit]').disabled);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.locator('textarea[name=notes]').fill('Synthetic scope only. Nothing outside the photos.');
+    if (approved) {
+      const addOn = page.getByRole('checkbox', { name: 'Approve Long carry: +$90', exact: true });
+      assert.equal(await addOn.isChecked(), false);
+      await addOn.check();
+    }
     assert((await page.locator('.reviewList').innerText()).includes('Staff-confirmed distance tier'));
     assert(await page.getByRole('radio', { name: '25-40 miles', exact: true }).isChecked());
     assert((await page.locator('.reviewList').innerText()).includes('furniture, appliances'));
@@ -78,13 +96,15 @@ try {
     assert.equal(form.getAll('photos').length, 10); assert(form.getAll('photos').reduce((n, p) => n + p.size, 0) <= 3.5 * 1024 * 1024);
     const result = await (await responded).json();
     assert.equal(result.status, 'conditional_estimate'); assert.equal(result.inputs.distanceTier, '25to40');
-    await page.getByRole('heading', { name: '$270 - $350', exact: true }).waitFor();
+    await page.getByRole('heading', { name: expectedPoint, exact: true }).waitFor();
+    await page.getByText('Provisional baseline from the model-estimated load percentage.', { exact: false }).waitFor();
+    if (approved) await page.getByText('Staff-approved Long carry: +$90', { exact: true }).first().waitFor();
     assert((await page.getByRole('region', { name: 'Internal estimate' }).innerText()).includes('Staff-confirmed distance tier'));
     await page.getByRole('button', { name: 'Refine estimate', exact: true }).click();
     await page.locator('#answer-contents').fill('lightweight decorations');
     await page.getByRole('button', { name: 'Reassess estimate', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('#answer-contents'));
-    await page.getByRole('heading', { name: '$270 - $350', exact: true }).waitFor();
+    await page.getByRole('heading', { name: expectedRange, exact: true }).waitFor();
     assert.equal(submissions, 2);
     assert((await page.getByRole('region', { name: 'Internal estimate' }).innerText()).includes('Staff-confirmed distance tier'));
     assert.equal(await page.locator('textarea[readonly]').count(), 0);
@@ -112,5 +132,5 @@ try {
     assert.deepEqual(errors, []); assert.deepEqual(external, []);
     await context.close();
   }
-  console.log('PASS: desktop/mobile Lake Forest staff override, reset on city edits, ten-photo transport, mocked provisional pricing and clarification preservation, source labeling, mapped-city UI and retry. Model/historical responses mocked; no live Maps/OpenAI/Sheets calls.');
+  console.log('PASS: desktop/mobile real priceJob with synthetic model data: 60%=$330 point, approved +$90 separately itemized, 50-70% endpoint pricing on clarification; Lake Forest override, ten-photo transport, reset and retry. API/model/historical responses mocked; no live Maps/OpenAI/Sheets calls.');
 } finally { await browser.close(); }

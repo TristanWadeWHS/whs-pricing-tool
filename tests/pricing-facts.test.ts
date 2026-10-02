@@ -8,7 +8,7 @@ import { priceJob } from '../app/lib/pricing';
 import { assessInternalEstimate } from '../app/lib/internal-estimate';
 
 const regressionNotes = 'Side-yard household junk. All items are easily carried by one person. Boxes contain lightweight household goods. Nothing hidden. All shown items included. No disassembly required.';
-const fixed = () => sampleAnalysis({ estimatedLoadPercent: 55, estimatedLoadCount: 0.55, heavyDebrisRisk: 'medium', hiddenDebrisRisk: 'medium', difficulty: 'medium',
+const fixed = () => sampleAnalysis({ estimatedLoadPercent: 55, estimatedLoadRange: '55%', estimatedLoadCount: 0.55, heavyDebrisRisk: 'medium', hiddenDebrisRisk: 'medium', difficulty: 'medium',
   observedFacts: ['Closed boxes in a pile.'], uncertaintyNotes: ['Contents may be heavy.', 'Additional material possibly hidden.'], assumptions: ['Loaded volume is already compacted.'] });
 
 describe('WHS evidence-based Preview adjustments', () => {
@@ -16,8 +16,8 @@ describe('WHS evidence-based Preview adjustments', () => {
     const inputs = sampleInputs({ notes: regressionNotes }); const analysis = fixed(); const facts = reconcilePricingFacts(inputs, analysis);
     expect(facts.handling.level).toBe('low'); expect(facts.hidden.state).toBe('resolved'); expect(facts.labor.state).toBe('routine_included');
     const pricing = priceJob(inputs, analysis, facts);
-    expect(pricing.baseLoadPrice).toBe(302.5); expect(pricing.adjustments).toBe(0); expect(pricing.suggestedQuote).toBe(310);
-    expect(pricing.recommendedRange).toBe('$270–$350'); expect(pricing.adjustmentNotes).toEqual([]);
+    expect(pricing.baseLoadPrice).toBe(302.5); expect(pricing.adjustments).toBe(0); expect(pricing.suggestedQuote).toBe(302.5);
+    expect(pricing.recommendedRange).toBe('$302.50'); expect(pricing.adjustmentNotes).toEqual([]);
     expect(facts.load).toEqual({ percent: 55, cubicYards: 6.6, trailerEquivalents: 0.55, volumeOnlyTrips: 1, trailerCubicYards: 12 });
   });
   it('compares the exact preserved pricing code and new policy with identical synthetic inputs', () => {
@@ -29,11 +29,11 @@ describe('WHS evidence-based Preview adjustments', () => {
     expect(before.baseLoadPrice).toBe(248); expect(after.baseLoadPrice).toBe(302.5); expect(before.adjustments).toBe(120); expect(after.adjustments).toBe(0);
     expect(before.recommendedRange).toBe('$335–$415'); expect(before.suggestedQuote).toBe(375);
     // Historic policy retained for comparison; the new authorized rate also changes the base.
-    expect(after.suggestedQuote).toBe(310);
+    expect(after.suggestedQuote).toBe(302.5);
   });
   it.each([
-    ['One person can move the item but needs a dolly.', 'medium', 50],
-    ['The item requires two or more people to lift safely.', 'high', 125],
+    ['One person can move the item but needs a dolly.', 'medium', 0],
+    ['The item requires two or more people to lift safely.', 'high', 0],
     ['One person carries all items easily.', 'low', 0],
     ['Closed boxes; a sofa; a dense pile.', 'unknown', 0],
     ['One person might need a dolly.', 'unknown', 0],
@@ -45,9 +45,9 @@ describe('WHS evidence-based Preview adjustments', () => {
   });
   it('does not stack repeated medium/high handling observations or access-only handling', () => {
     const inputs = sampleInputs({ notes: 'One person needs a dolly. One person needs a dolly. The cabinet requires two people.', carryDistance: 'long', stairs: 'some' });
-    expect(priceJob(inputs, fixed()).adjustments).toBe(125 + 90 + 40);
+    expect(priceJob(inputs, fixed()).adjustments).toBe(0);
     const accessOnly = sampleInputs({ notes: 'One person needs a dolly due to long carry. Two people are required on stairs.', carryDistance: 'long', stairs: 'some' });
-    expect(priceJob(accessOnly, fixed()).adjustments).toBe(90 + 40);
+    expect(priceJob(accessOnly, fixed()).adjustments).toBe(0);
   });
   it('uses actual answer evidence, not contents names or unknown answers, and retains contradictions for review', () => {
     const inputs = sampleInputs(); const analysis = fixed();
@@ -67,7 +67,7 @@ describe('WHS evidence-based Preview adjustments', () => {
   it('keeps substantial demolition and repeated long-distance movement out of generic fees', () => {
     const inputs = sampleInputs({ notes: 'Requires substantial demolition. Repeated long-distance movement of debris.', carryDistance: 'long' });
     const facts = reconcilePricingFacts(inputs, fixed()); expect(facts.labor.state).toBe('exceptional_review');
-    expect(facts.reviewReasons.join(' ')).toContain('no approved task-specific rate'); expect(priceJob(inputs, fixed(), facts).adjustments).toBe(90);
+    expect(facts.reviewReasons.join(' ')).toContain('no approved task-specific rate'); expect(priceJob(inputs, fixed(), facts).adjustments).toBe(0);
     expect(reconcilePricingFacts(sampleInputs({ notes: 'No substantial demolition. Ordinary packing and lifting.' }), fixed()).labor.state).toBe('routine_included');
   });
   it('keeps material hazards separate and never charges from names alone', () => {

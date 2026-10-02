@@ -62,7 +62,7 @@ export function reconcilePricingFacts(inputs: JobInputs, analysis: VisionAnalysi
     ...(handling.level === 'conflicting' ? ['Handling evidence conflicts; no automatic heavy adjustment until staff resolves it.'] : []),
     ...(hidden.state === 'conflicting' ? ['Additional-scope evidence contradicts the confirmed removal scope.'] : []),
     ...(hidden.state === 'confirmed_extra' ? ['Confirm additional material is included in the modeled volume; do not add an uncertainty surcharge.'] : []),
-    ...(laborEvidence.length ? ['Exceptional labor needs staff pricing: no approved task-specific rate is defined. Explicit carry/stairs charges apply once only.'] : []),
+    ...(laborEvidence.length ? ['Exceptional labor needs staff pricing: no approved task-specific rate is defined. Carry/stairs charges require explicit staff approval.'] : []),
     ...(hazards.length || analysis.heavyDebrisRisk !== 'low' ? ['Material/disposal safety review is separate from handling. No automatic hazard fee is defined.'] : [])
   ];
   return { handling, hidden, labor, hazards, reviewReasons, load: coreLoadUnits(analysis.estimatedLoadPercent), packingAssumptions: [

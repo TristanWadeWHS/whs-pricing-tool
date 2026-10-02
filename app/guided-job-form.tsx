@@ -5,6 +5,7 @@ import { CARRIES, DISTANCES, EMPTY_DETAILS, guidedForm, guidedNotes, ITEM_LOCATI
 import { MAX_ESTIMATE_PHOTOS } from './lib/estimate-limits';
 import { LocationSearch } from './location-search';
 import { LOCATION_REQUIRED } from './lib/location-resolution';
+import { availableAccessAddOns } from './lib/pricing';
 
 export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount, onPhotos, onAnalyze }: {
   disabled: boolean; photoStatus: string; photoMessage: string; photoCount: number;
@@ -15,7 +16,7 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
   const [error, setError] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (step > 0) heading.current?.focus(); }, [step]);
-  function update(key: 'area' | 'itemLocation' | 'carryDistance' | 'stairs' | 'notes' | 'staffDistanceTier', value: string) { setDetails((old) => ({ ...old, [key]: value })); setError(''); }
+  function update(key: 'area' | 'itemLocation' | 'carryDistance' | 'stairs' | 'notes' | 'staffDistanceTier', value: string) { setDetails((old) => ({ ...old, [key]: value, ...(['itemLocation', 'carryDistance', 'stairs'].includes(key) ? { staffAddOns: [] } : {}) })); setError(''); }
   function choices(key: 'itemLocation' | 'carryDistance' | 'stairs' | 'staffDistanceTier', legend: string, options: readonly (readonly [string, string])[]) {
     return <fieldset className="choices"><legend>{legend}</legend><div className="choiceGrid">{options.map(([value, label]) =>
       <label className="choice" key={value}><input type="radio" name={key} value={value} checked={details[key] === value} onChange={() => update(key, value)} /><span>{label}</span></label>
@@ -75,6 +76,11 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
             <div><dt>Access</dt><dd>{details.itemLocation} / {CARRIES.find(([value]) => value === details.carryDistance)?.[1]} / {STAIRS.find(([value]) => value === details.stairs)?.[1]}</dd></div>
             <div><dt>Photos</dt><dd>{photoCount} selected {photoStatus === 'ready' ? 'and optimized' : '(not ready)'}</dd></div>
           </dl>
+          {availableAccessAddOns(details).length > 0 && <fieldset><legend>Staff-approved access add-ons (optional)</legend>
+            {availableAccessAddOns(details).map((item) => <label className="notSure" key={item.id}><input type="checkbox" checked={details.staffAddOns?.includes(item.id) ?? false}
+              onChange={(event) => { const checked = event.target.checked; setDetails((old) => ({ ...old, staffAddOns: checked ? [...(old.staffAddOns ?? []), item.id] : old.staffAddOns?.filter((id) => id !== item.id) })); }} />Approve {item.label}: +${item.amount}</label>)}
+            <p className="helperText">Confirm distinct additional work under the existing WHS access rule. Do not charge twice for the same work. Unchecked items do not change the volume baseline.</p>
+          </fieldset>}
           <p className="helperText">{guidedNotes(details).length}/1000 context characters. Only the shown and confirmed removal scope will be submitted.</p>
           {staffTierChoices()}
           {details.location && <p className="helperText">{details.staffDistanceTier ? 'Staff-confirmed distance tier for this estimate only. The city route remains unverified; no mileage is inferred.' : details.location.reason} {details.location.representativeDrivingMiles !== null ? `Approximate city-level route: ${details.location.representativeDrivingMiles.toFixed(1)} driving miles; not exact customer-address mileage.` : ''}</p>}

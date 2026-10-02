@@ -1,5 +1,5 @@
-import { VisionAnalysis } from './analysis-schema';
-import { reconcilePricingFacts, type PricingFacts } from './pricing-facts';
+import type { VisionAnalysis } from './analysis-schema';
+import type { PricingFacts } from './pricing-facts';
 import type { ResolvedLocation } from './location-resolution';
 
 export type JobInputs = {
@@ -10,91 +10,70 @@ export type JobInputs = {
   jobTypes?: string[];
   carryDistance: 'curbside' | 'short' | 'medium' | 'long';
   stairs: 'none' | 'some' | 'heavy';
+  staffAddOns?: string[];
   workers: number | null;
   notes: string;
 };
 
 export const FULL_LOAD_RATE = 550;
-export function selectedJobTypes(inputs: JobInputs) {
-  return inputs.jobTypes ?? [inputs.jobType];
+export function selectedJobTypes(inputs: JobInputs) { return inputs.jobTypes ?? [inputs.jobType]; }
+
+// Existing approved access rates, never derived from model observations or notes.
+export function availableAccessAddOns(inputs: { carryDistance: string; stairs: string }) {
+  const items: { id: string; label: string; amount: number }[] = [];
+  if (inputs.carryDistance === 'medium') items.push({ id: 'carry_medium', label: 'Medium carry', amount: 40 });
+  if (inputs.carryDistance === 'long') items.push({ id: 'carry_long', label: 'Long carry', amount: 90 });
+  if (inputs.stairs === 'some') items.push({ id: 'stairs_some', label: 'Stairs', amount: 40 });
+  if (inputs.stairs === 'heavy') items.push({ id: 'stairs_heavy', label: 'Heavy stairs', amount: 100 });
+  return items;
 }
 
-export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, reconciled?: PricingFacts) {
+export function validStaffAddOns(inputs: { carryDistance: string; stairs: string }, ids: unknown[]): ids is string[] {
+  const available = availableAccessAddOns(inputs);
+  return ids.length <= 2 && new Set(ids).size === ids.length
+    && ids.every((id) => typeof id === 'string' && available.some((item) => item.id === id));
+}
+
+// Only an explicit, bounded percentage interval is usable. Never extract numbers
+// from prose, dollar amounts, cubic yards, load counts or an uncertainty score.
+export function loadedPercentRange(text: string, point: number): [number, number] | null {
+  const match = text.trim().match(/^(\d+(?:\.\d+)?)\s*%?\s*(?:-|\u2013|\u2014|to)\s*(\d+(?:\.\d+)?)\s*%(?:\s+of\s+(?:(?:a|the)\s+)?12[- ](?:cubic[- ]yard|yard|yd)\s+trailer)?\.?$/i);
+  if (!match) return null;
+  const low = Number(match[1]), high = Number(match[2]);
+  return low >= 1 && high <= 200 && low < high && low <= point && point <= high ? [low, high] : null;
+}
+
+const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+const dollars = (value: number) => `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
+
+export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, _reconciled?: PricingFacts) {
   const minimums = { under25: 130, '25to40': 145, '40to65': 175 };
   const minPrice = minimums[inputs.distanceTier];
-
-  const competitorFullLoadPrice = 650;
-  const whsFullLoadPrice = FULL_LOAD_RATE;
-
-  const rawLoadPercent = Number(analysis.estimatedLoadPercent);
-  if (!Number.isFinite(rawLoadPercent)) {
-    throw new Error('Pricing requires a valid estimated load percent.');
+  const percent = analysis.estimatedLoadPercent;
+  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 1 || percent > 200 || !minPrice) {
+    throw new Error('Pricing requires a valid estimated load percent and distance tier.');
   }
-
-  const loadPercent = Math.max(10, Math.min(200, rawLoadPercent));
-  const facts = reconciled ?? reconcilePricingFacts(inputs, { ...analysis, estimatedLoadPercent: loadPercent });
-  let base = (loadPercent / 100) * whsFullLoadPrice;
-
-  base = Math.max(base, minPrice);
-
-  let adjustments = 0;
-  const adjustmentNotes: string[] = [];
-
-  if (facts.handling.level === 'medium') {
-    adjustments += 50;
-    adjustmentNotes.push('Medium handling: one person requires handling equipment');
-  }
-
-  if (facts.handling.level === 'high') {
-    adjustments += 125;
-    adjustmentNotes.push('High handling: two or more people required');
-  }
-
-  // Routine labor is in the base. Uncertainty is not extra scope or a charge.
-  // Exceptional tasks have no approved task-specific rate; review instead of
-  // repurposing the former generic $100 hard-labor/access surcharge.
-
-  if (inputs.carryDistance === 'medium') {
-    adjustments += 40;
-    adjustmentNotes.push('Medium carry-distance adjustment');
-  }
-
-  if (inputs.carryDistance === 'long') {
-    adjustments += 90;
-    adjustmentNotes.push('Long carry-distance adjustment');
-  }
-
-  if (inputs.stairs === 'some') {
-    adjustments += 40;
-    adjustmentNotes.push('Stairs adjustment');
-  }
-
-  if (inputs.stairs === 'heavy') {
-    adjustments += 100;
-    adjustmentNotes.push('Heavy stairs adjustment');
-  }
-
-  if (selectedJobTypes(inputs).length === 1 && selectedJobTypes(inputs)[0] === 'cardboard only') {
-    adjustments -= 40;
-    adjustmentNotes.push('Cardboard-only discount applied');
-  }
-
-  const low = Math.max(minPrice, Math.round((base + adjustments - 35) / 5) * 5);
-  const high = Math.max(low, Math.round((base + adjustments + 45) / 5) * 5);
-  const suggested = Math.round(((low + high) / 2) / 5) * 5;
-
-  const competitorEquivalent = Math.round((loadPercent / 100) * competitorFullLoadPrice);
-  const estimatedSavings = Math.max(0, competitorEquivalent - suggested);
-
+  const ids = inputs.staffAddOns ?? [];
+  if (!validStaffAddOns(inputs, ids)) throw new Error('Invalid staff-approved add-on.');
+  const lineItems = availableAccessAddOns(inputs).filter((item) => ids.includes(item.id));
+  const adjustments = lineItems.reduce((total, item) => total + item.amount, 0);
+  const adjustmentNotes = lineItems.map((item) => `Staff-approved ${item.label}: +${dollars(item.amount)}`);
+  const volumeBasePrice = money(percent / 100 * FULL_LOAD_RATE);
+  const baseLoadPrice = Math.max(minPrice, volumeBasePrice);
+  const amount = (load: number) => money(Math.max(minPrice, load / 100 * FULL_LOAD_RATE) + adjustments);
+  const range = loadedPercentRange(analysis.estimatedLoadRange, percent);
+  const low = amount(range?.[0] ?? percent), high = amount(range?.[1] ?? percent);
+  const suggested = amount(percent);
   return {
-    minimumPrice: minPrice,
-    baseLoadPrice: base,
-    adjustments,
-    adjustmentNotes,
-    recommendedRange: `$${low}–$${high}`,
+    minimumPrice: minPrice, volumeBasePrice, baseLoadPrice, adjustments, adjustmentNotes, lineItems,
+    estimateBasis: range ? 'model_load_range' as const : 'model_load_point' as const,
+    loadPercentRange: range, priceLow: low, priceHigh: high,
+    calculationNote: range
+      ? 'Endpoints calculated from the model-estimated loaded-volume range; not a statistical prediction interval.'
+      : 'Provisional baseline from the model-estimated load percentage. No usable explicit percentage interval; no wider price range invented.',
+    recommendedRange: low === high ? dollars(low) : `${dollars(low)}\u2013${dollars(high)}`,
     suggestedQuote: suggested,
-    competitorSummary: `According to the WHS pricing model, local competitors average around $${competitorFullLoadPrice} per trailer load. Based on this estimated load, a competitor-equivalent price may be around $${competitorEquivalent}. WHS suggested quote is $${suggested}, estimated customer savings of about $${estimatedSavings}.`,
-    customerMessage: `Based on the photos and details provided, we can take care of this for $${suggested}. This includes loading, hauling, and proper disposal. Final price assumes the material shown is accurate and there is no hidden heavy/demo debris beyond what is visible. Please confirm if anything is underneath, behind, or not shown in the photos. If additional undeclared material is found on site, the price may increase.`
+    customerMessage: `The calculated estimate is ${low === high ? dollars(low) : `${dollars(low)} to ${dollars(high)}`}, subject to staff approval and confirmation of the described removal scope and access. Additional scope requires review.`
   };
 }
 

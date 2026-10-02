@@ -48,13 +48,13 @@ export function assessInternalEstimate(inputs: JobInputs, analysis: VisionAnalys
   const showEvidence = (entries: { source: string; text: string }[]) => entries.map((entry) => `${entry.source.replaceAll('_', ' ')}: ${safeEvidence(entry.text)}`);
   const drivers: PriceDriver[] = [
     { topic: 'handling', state: pricingFacts.handling.level === 'unknown' ? 'unknown' : pricingFacts.handling.level === 'conflicting' ? 'review' : 'resolved',
-      message: `Handling: ${pricingFacts.handling.level}. ${pricingFacts.handling.level === 'medium' ? 'One person needs equipment; approved medium adjustment applies.' : pricingFacts.handling.level === 'high' ? 'Two or more people required; approved high adjustment applies.' : 'No automatic heavy adjustment.'}`,
+      message: `Handling: ${pricingFacts.handling.level}. Handling evidence requires operational review, not an automatic price adjustment.`,
       evidence: showEvidence(pricingFacts.handling.evidence) },
     { topic: 'hidden', state: pricingFacts.hidden.state === 'resolved' ? 'resolved' : pricingFacts.hidden.state === 'unknown' ? 'unknown' : 'review',
       message: `Additional scope: ${pricingFacts.hidden.state}. No uncertainty surcharge. Confirm actual extra scope in the load estimate, not a second fee.`,
       evidence: showEvidence(pricingFacts.hidden.evidence) },
     { topic: 'labor', state: pricingFacts.labor.state === 'exceptional_review' ? 'review' : 'resolved',
-      message: pricingFacts.labor.state === 'exceptional_review' ? 'Exceptional work requires staff pricing; no approved task-specific rate. Carry/stairs rules apply once.'
+      message: pricingFacts.labor.state === 'exceptional_review' ? 'Exceptional work requires staff pricing; no approved task-specific rate. Only explicitly staff-approved access add-ons apply.'
         : 'Routine carrying, lifting, loading, organizing, nesting and ordinary packing are included. No generic labor surcharge.',
       evidence: [...showEvidence(pricingFacts.labor.evidence), `Entered access: ${inputs.carryDistance} carry; stairs ${inputs.stairs}.`] },
     { topic: 'material / disposal', state: pricingFacts.hazards.length || analysis.heavyDebrisRisk !== 'low' ? 'review' : 'unknown',
@@ -71,6 +71,6 @@ export function assessInternalEstimate(inputs: JobInputs, analysis: VisionAnalys
     ...pricingFacts.packingAssumptions.map(safeEvidence),
     `Access as entered: ${inputs.carryDistance} carry, stairs ${inputs.stairs}; distance tier ${inputs.distanceTier}.`,
     fact('hidden').state === 'resolved' ? 'Removal is limited to the scope confirmed in the original details and clarification.' : 'Provisional range assumes the described/photographed items only; additional scope is not included.',
-    'The policy price range is not a statistical prediction interval. Staff review is required before quoting.'
+    'Prices use the model-estimated loaded percentage or an explicit supported percentage range. Neither is a statistical prediction interval. Staff review is required before quoting.'
   ] };
 }
