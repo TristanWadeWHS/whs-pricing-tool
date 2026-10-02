@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { HistoricalReference } from './historical-reference';
 import { ShadowDiagnostics } from './shadow-diagnostics';
 import { GuidedJobForm } from './guided-job-form';
+import { DISTANCES } from './lib/guided-estimate';
 import { canDisplayEstimate, failedResult, readAnalyzeResponse, type Result } from './lib/analyze-client';
 import { ANALYSIS_CONFIDENCE_LABEL, ANALYSIS_CONFIDENCE_NOTE } from './lib/analysis-confidence';
 import { getPhotoSizeRejection } from './lib/estimate-limits';
@@ -199,6 +200,9 @@ export default function Home() {
         </div>
         <details open><summary>Review status</summary><p>{formatStatus(result.status)}</p>
         <p><b>Job types:</b> {(result.inputs?.jobTypes ?? [result.inputs?.jobType]).filter(Boolean).join(', ')}</p>
+        {result.inputs?.location && <p><b>Location:</b> {result.inputs.location.label}<br />
+          <b>{result.inputs.distanceTierSource === 'staff_confirmed' ? 'Staff-confirmed distance tier' : 'Verified city-route distance tier'}:</b> {DISTANCES.find(([tier]) => tier === result.inputs.distanceTier)?.[1]}
+          {result.inputs.distanceTierSource === 'staff_confirmed' && ' - this estimate only; no verified city mileage.'}</p>}
         <ul>{result.statusReasons?.map((reason) => <li key={reason}>{reason}</li>)}</ul></details>
         {result.loadUnits && <details aria-label="Model-estimated loaded volume"><summary>Model-estimated loads</summary>
           <p><b>Model-estimated loaded volume:</b> {result.loadUnits.percent}% = {result.loadUnits.cubicYards} cubic yards = {result.loadUnits.trailerEquivalents} trailer equivalents ({result.loadUnits.trailerCubicYards}-yard trailer).</p>

@@ -1,8 +1,11 @@
 import { VisionAnalysis } from './analysis-schema';
 import { reconcilePricingFacts, type PricingFacts } from './pricing-facts';
+import type { ResolvedLocation } from './location-resolution';
 
 export type JobInputs = {
+  location?: ResolvedLocation;
   distanceTier: 'under25' | '25to40' | '40to65';
+  distanceTierSource?: 'verified_city_route' | 'staff_confirmed';
   jobType: string;
   jobTypes?: string[];
   carryDistance: 'curbside' | 'short' | 'medium' | 'long';

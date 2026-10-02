@@ -1,26 +1,29 @@
-export const LOCATION_BLOCKER = 'Google Maps location search is not configured. Staff must configure GOOGLE_MAPS_API_KEY and WHS_MAPS_ORIGIN_PLACE_ID for Preview. No distance tier has been assumed.';
-export const LOCATION_REQUIRED = 'Select a California city or neighborhood and wait for its approximate driving route before submitting an estimate.';
-export type LocationSuggestion = { id: string; label: string };
-export function isLocationSuggestion(value: unknown): value is LocationSuggestion {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<LocationSuggestion>;
-  return typeof candidate.id === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(candidate.id)
-    && typeof candidate.label === 'string' && candidate.label.length > 0 && candidate.label.length <= 80;
-}
-
-// Existing service bands, applied only to a routing service's driving miles.
-// A city name or straight-line distance is not routing evidence.
-export function tierForDrivingMiles(miles: number) {
+export const LOCATION_REQUIRED = 'Select a city and county from the local directory. Free text is not a verified location.';
+export type DistanceTier = 'under25' | '25to40' | '40to65';
+// Existing bands only. Never apply these to geographic/straight-line distances.
+export function tierForDrivingMiles(miles: number): DistanceTier | null {
   if (!Number.isFinite(miles) || miles < 0 || miles > 65) return null;
   return miles <= 25 ? 'under25' : miles <= 40 ? '25to40' : '40to65';
 }
-export type ResolvedLocation = LocationSuggestion & { state: 'CA'; drivingMiles: number; latitude: number; longitude: number; token: string };
-export function isResolvedLocation(value: unknown): value is ResolvedLocation {
+export type LocationSuggestion = { id: string; name: string; county: string; label: string; kind: string };
+export type ResolvedLocation = LocationSuggestion & {
+  directoryVersion: string; routeVersion: string;
+  status: 'verified' | 'staff_review_required'; reason: string;
+  representativeDrivingMiles: number | null; distanceTier: DistanceTier | null;
+};
+export function isLocationSuggestion(value: unknown): value is LocationSuggestion {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<ResolvedLocation>;
-  return isLocationSuggestion(value) && candidate.state === 'CA'
-    && typeof candidate.latitude === 'number' && Number.isFinite(candidate.latitude) && Math.abs(candidate.latitude) <= 90
-    && typeof candidate.longitude === 'number' && Number.isFinite(candidate.longitude) && Math.abs(candidate.longitude) <= 180
-    && typeof candidate.token === 'string' && candidate.token.length > 0 && candidate.token.length <= 4096
-    && typeof candidate.drivingMiles === 'number' && tierForDrivingMiles(candidate.drivingMiles) !== null;
+  const c = value as Partial<LocationSuggestion>;
+  return typeof c.id === 'string' && /^geonames:\d+$/.test(c.id)
+    && typeof c.name === 'string' && typeof c.county === 'string'
+    && typeof c.label === 'string' && c.label.length <= 160 && typeof c.kind === 'string';
+}
+// Shape check for UI only. Server always re-resolves the ID against versioned data.
+export function isResolvedLocation(value: unknown): value is ResolvedLocation {
+  if (!isLocationSuggestion(value)) return false;
+  const c = value as ResolvedLocation;
+  return typeof c.directoryVersion === 'string' && typeof c.routeVersion === 'string' && typeof c.reason === 'string'
+    && (c.status === 'staff_review_required' ? c.distanceTier === null
+      : c.status === 'verified' && typeof c.representativeDrivingMiles === 'number'
+        && tierForDrivingMiles(c.representativeDrivingMiles) !== null && c.distanceTier === tierForDrivingMiles(c.representativeDrivingMiles));
 }

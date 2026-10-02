@@ -1,6 +1,7 @@
 import { JobInputs } from './pricing';
 import { IMAGE_TOO_LARGE_MESSAGE, MAX_ESTIMATE_IMAGE_BYTES, MAX_ESTIMATE_PHOTOS, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from './estimate-limits';
-import { isResolvedLocation, LOCATION_REQUIRED, tierForDrivingMiles, type ResolvedLocation } from './location-resolution';
+import { LOCATION_REQUIRED, type ResolvedLocation } from './location-resolution';
+import { resolveCity, DIRECTORY_VERSION, ROUTE_VERSION } from './city-directory';
 
 export const ESTIMATE_LIMITS = {
   minPhotos: 1,
@@ -33,7 +34,7 @@ export type ValidatedEstimateRequest = {
 
 export type ValidationResult =
   | { ok: true; value: ValidatedEstimateRequest }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; reviewLocation?: ResolvedLocation };
 
 const distanceTiers = new Set(['under25', '25to40', '40to65']);
 const carryDistances = new Set(['curbside', 'short', 'medium', 'long']);
@@ -41,11 +42,24 @@ const stairsOptions = new Set(['none', 'some', 'heavy']);
 const jobTypes = new Set<string>(ESTIMATE_LIMITS.supportedJobTypes);
 const mimeTypes = new Set<string>(ESTIMATE_LIMITS.supportedMimeTypes);
 
-export async function validateEstimateForm(form: FormData, verifiedLocation?: ResolvedLocation): Promise<ValidationResult> {
-  // Only the server route can supply a cryptographically verified location.
-  if (form.get('workflow') === 'guided-location-v2' && (!isResolvedLocation(verifiedLocation)
-    || form.getAll('locationToken').length !== 1 || form.get('locationToken') !== verifiedLocation.token
-    || form.get('distanceTier') !== tierForDrivingMiles(verifiedLocation.drivingMiles))) return invalid(LOCATION_REQUIRED);
+export async function validateEstimateForm(form: FormData): Promise<ValidationResult> {
+  let city: ResolvedLocation | null = null;
+  let staffTier: JobInputs['distanceTier'] | null = null;
+  if (form.getAll('workflow').length > 1) return invalid('Duplicate workflow.');
+  if (form.has('workflow') || form.has('cityId')) {
+    if (form.get('workflow') !== 'guided-city-v3') return invalid('Location workflow changed. Refresh and select a city from the local directory.');
+    if (form.getAll('cityId').length !== 1 || typeof form.get('cityId') !== 'string') return invalid(LOCATION_REQUIRED);
+    city = resolveCity(String(form.get('cityId')));
+    if (!city) return invalid(LOCATION_REQUIRED);
+    if (form.get('directoryVersion') !== DIRECTORY_VERSION || form.get('routeVersion') !== ROUTE_VERSION) return invalid('City or route data changed. Refresh and reselect the city.');
+    if (form.has('distanceTier') || form.has('locationToken')) return invalid('City tiers must come from the local verified route records, not browser fields.');
+  }
+  if (form.has('staffDistanceTier')) {
+    const value = form.get('staffDistanceTier');
+    if (!city || city.status === 'verified' || form.getAll('staffDistanceTier').length !== 1
+      || typeof value !== 'string' || !distanceTiers.has(value)) return invalid('Select one valid staff-confirmed distance tier for an unverified city.');
+    staffTier = value as JobInputs['distanceTier'];
+  }
   const rawFiles = form.getAll('photos');
   const files = rawFiles.filter((value): value is File => value instanceof File);
 
@@ -61,7 +75,7 @@ export async function validateEstimateForm(form: FormData, verifiedLocation?: Re
     return invalid(`Upload no more than ${ESTIMATE_LIMITS.maxPhotos} photos.`);
   }
 
-  const distanceTier = String(form.get('distanceTier') || '');
+  const distanceTier = city ? city.distanceTier ?? staffTier : String(form.get('distanceTier') || '');
   const selectedTypes = form.getAll('jobType');
   const carryDistance = String(form.get('carryDistance') || '');
   const stairs = String(form.get('stairs') || '');
@@ -69,7 +83,7 @@ export async function validateEstimateForm(form: FormData, verifiedLocation?: Re
   // The guided form does not collect crew size. Missing is unknown, not one worker.
   const workers = form.has('workers') ? Number(form.get('workers')) : null;
 
-  if (!distanceTiers.has(distanceTier)) {
+  if (!city && !distanceTiers.has(distanceTier ?? '')) {
     return invalid('Select a valid distance tier.');
   }
 
@@ -122,6 +136,7 @@ export async function validateEstimateForm(form: FormData, verifiedLocation?: Re
     photos.push({ file, bytes, mime: file.type });
   }
 
+  if (city?.status === 'staff_review_required' && !staffTier) return { ok: false, status: 422, error: city.reason, reviewLocation: city };
   return {
     ok: true,
     value: {
@@ -132,7 +147,8 @@ export async function validateEstimateForm(form: FormData, verifiedLocation?: Re
         carryDistance: carryDistance as JobInputs['carryDistance'],
         stairs: stairs as JobInputs['stairs'],
         workers,
-        notes
+        notes,
+        ...(city ? { location: city, distanceTierSource: staffTier ? 'staff_confirmed' as const : 'verified_city_route' as const } : {})
       },
       photos
     }
