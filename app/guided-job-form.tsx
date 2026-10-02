@@ -15,11 +15,17 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
   const [error, setError] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (step > 0) heading.current?.focus(); }, [step]);
-  function update(key: 'area' | 'itemLocation' | 'carryDistance' | 'stairs' | 'notes', value: string) { setDetails((old) => ({ ...old, [key]: value })); setError(''); }
-  function choices(key: 'itemLocation' | 'carryDistance' | 'stairs', legend: string, options: readonly (readonly [string, string])[]) {
+  function update(key: 'area' | 'itemLocation' | 'carryDistance' | 'stairs' | 'notes' | 'staffDistanceTier', value: string) { setDetails((old) => ({ ...old, [key]: value })); setError(''); }
+  function choices(key: 'itemLocation' | 'carryDistance' | 'stairs' | 'staffDistanceTier', legend: string, options: readonly (readonly [string, string])[]) {
     return <fieldset className="choices"><legend>{legend}</legend><div className="choiceGrid">{options.map(([value, label]) =>
       <label className="choice" key={value}><input type="radio" name={key} value={value} checked={details[key] === value} onChange={() => update(key, value)} /><span>{label}</span></label>
     )}</div></fieldset>;
+  }
+  function staffTierChoices() {
+    return details.location?.status === 'staff_review_required' && <>
+      {choices('staffDistanceTier', 'Staff-confirmed distance tier', DISTANCES)}
+      <p className="helperText">Confirm the driving-distance band for this job from Rancho Mission Viejo. This applies only to this estimate; it does not verify the city route or record mileage.</p>
+    </>;
   }
   async function submit(event: React.FormEvent) {
     event.preventDefault(); if (disabled) return;
@@ -36,7 +42,8 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
         <h2 ref={heading} tabIndex={-1}>{['Let\u2019s take a look!', 'Where is the job?', 'What are we removing?', 'Where are the items?', 'Show us the scope.', 'Notes and review'][step]}</h2>
         {step === 0 && <div className="welcome"><img src="/winston-logo.png" width="160" height="160" alt="Winston, Wade Home Services" /><p>Job photos and a few details.<br />An internal estimate, reviewed by your team.</p><p className="helperText">Staff approval is required before quoting a customer.</p></div>}
         {step === 1 && <>
-          <LocationSearch query={details.area} selected={details.location} onChange={(area, location) => { setDetails((old) => ({ ...old, area, location })); setError(''); }} />
+          <LocationSearch query={details.area} selected={details.location} staffConfirmed={Boolean(details.staffDistanceTier)} onChange={(area, location) => { setDetails((old) => ({ ...old, area, location, staffDistanceTier: '' })); setError(''); }} />
+          {staffTierChoices()}
           <p className="helperText">Service distance starts from Rancho Mission Viejo. A city-level route is not an exact driving distance to the job address.</p>
           {!details.location && <button type="button" className="secondary" onClick={() => { setError(''); setStep(2); }}>Review other steps while location is unresolved</button>}
         </>}
@@ -63,20 +70,21 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
         {step === 5 && <>
           <label className="fieldLabel">Anything else we should know?<textarea name="notes" maxLength={800} value={details.notes} onChange={(e) => update('notes', e.target.value)} placeholder="Contents of boxes, items to leave behind, handling equipment needed, or confirmed dimensions..." /></label>
           <dl className="reviewList">
-            <div><dt>Location</dt><dd>{details.location?.label || details.area || 'Location unresolved'} / {details.location?.distanceTier ? DISTANCES.find(([value]) => value === details.location!.distanceTier)?.[1] : 'Staff review required - no verified tier'}</dd></div>
+            <div><dt>Location</dt><dd>{details.location?.label || details.area || 'Location unresolved'} / {DISTANCES.find(([value]) => value === (details.location?.distanceTier ?? details.staffDistanceTier))?.[1] || 'Staff-confirmed tier required'}{details.staffDistanceTier ? ' (Staff-confirmed distance tier)' : details.location?.distanceTier ? ' (Verified city route)' : ''}</dd></div>
             <div><dt>Job types</dt><dd>{details.jobTypes.join(', ')}</dd></div>
             <div><dt>Access</dt><dd>{details.itemLocation} / {CARRIES.find(([value]) => value === details.carryDistance)?.[1]} / {STAIRS.find(([value]) => value === details.stairs)?.[1]}</dd></div>
             <div><dt>Photos</dt><dd>{photoCount} selected {photoStatus === 'ready' ? 'and optimized' : '(not ready)'}</dd></div>
           </dl>
           <p className="helperText">{guidedNotes(details).length}/1000 context characters. Only the shown and confirmed removal scope will be submitted.</p>
-          {details.location && <p className="helperText">{details.location.reason} {details.location.representativeDrivingMiles !== null ? `Approximate city-level route: ${details.location.representativeDrivingMiles.toFixed(1)} driving miles; not exact customer-address mileage.` : 'No representative route distance is recorded.'}</p>}
+          {staffTierChoices()}
+          {details.location && <p className="helperText">{details.staffDistanceTier ? 'Staff-confirmed distance tier for this estimate only. The city route remains unverified; no mileage is inferred.' : details.location.reason} {details.location.representativeDrivingMiles !== null ? `Approximate city-level route: ${details.location.representativeDrivingMiles.toFixed(1)} driving miles; not exact customer-address mileage.` : ''}</p>}
           {!details.location && <p role="alert">{LOCATION_REQUIRED}</p>}
         </>}
         {error && <p role="alert" className="photoErrorText">{error}</p>}
         <div className="stepActions">
           {step > 0 && <button type="button" className="secondary" onClick={() => { setError(''); setStep(step - 1); }}>Back</button>}
           <button type="submit" disabled={photoStatus === 'optimizing' || (step >= 4 && photoStatus !== 'ready') || (step === 5 && !details.location)}>
-            {step === 0 ? 'Start estimate' : step === 5 ? details.location?.status === 'staff_review_required' ? 'Check review requirements' : 'Analyze Job' : 'Continue'}
+            {step === 0 ? 'Start estimate' : step === 5 ? 'Analyze Job' : 'Continue'}
           </button>
         </div>
       </fieldset>

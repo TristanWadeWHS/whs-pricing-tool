@@ -11,7 +11,7 @@ import { isResolvedLocation, LOCATION_REQUIRED, tierForDrivingMiles } from '../a
 import { resolveCity } from '../app/lib/city-directory';
 import { determineQuoteStatus } from '../app/lib/quote-status';
 
-const details = { ...EMPTY_DETAILS, location: resolveCity('geonames:5364514')!, jobTypes: ['furniture', 'appliances'], itemLocation: 'Garage', carryDistance: 'short', stairs: 'none', notes: 'All shown items included; all items easily carried by one person.' };
+const details = { ...EMPTY_DETAILS, location: resolveCity('geonames:5364514')!, staffDistanceTier: 'under25', jobTypes: ['furniture', 'appliances'], itemLocation: 'Garage', carryDistance: 'short', stairs: 'none', notes: 'All shown items included; all items easily carried by one person.' };
 describe('guided estimate field mapping', () => {
   it('requires explicit selections and never derives route facts from a location', () => {
     expect(STEPS).toHaveLength(6);
@@ -33,11 +33,11 @@ describe('guided estimate field mapping', () => {
     expect(form.get('notes')).toContain(details.notes);
     expect(form.getAll('jobType')).toEqual(['furniture', 'appliances']);
     for (let i = 0; i < 10; i++) form.append('photos', pngFile(`synthetic-${i}.png`));
-    // Selected cities remain usable without inventing unknown distances.
-    expect(await validateEstimateForm(form)).toMatchObject({ ok: false, reviewLocation: details.location });
+    expect(form.get('staffDistanceTier')).toBe('under25');
+    expect(await validateEstimateForm(form)).toMatchObject({ ok: true, value: { inputs: { distanceTier: 'under25', distanceTierSource: 'staff_confirmed', location: details.location } } });
     // The existing internal API contract still accepts explicitly supplied staff tiers.
     form.delete('workflow');
-    form.delete('cityId'); form.delete('directoryVersion'); form.delete('routeVersion'); form.set('distanceTier', 'under25');
+    form.delete('cityId'); form.delete('directoryVersion'); form.delete('routeVersion'); form.delete('staffDistanceTier'); form.set('distanceTier', 'under25');
     const result = await validateEstimateForm(form);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -53,6 +53,8 @@ describe('guided estimate field mapping', () => {
     const form = makeForm(); form.set('workers', '');
     expect((await validateEstimateForm(form)).ok).toBe(false);
     expect(() => guidedForm({ ...details, notes: 'x'.repeat(1000) })).toThrow();
+    expect(() => guidedForm({ ...details, staffDistanceTier: '' })).toThrow('staff-confirmed');
+    expect(() => guidedForm({ ...details, staffDistanceTier: 'invented' })).toThrow('staff-confirmed');
     expect(guidedNotes({ ...details, area: 'a'.repeat(80), notes: 'n'.repeat(800) }).length).toBeLessThanOrEqual(1000);
   });
   it('does not fall back to generic questions; asks only reported, unresolved concerns', () => {

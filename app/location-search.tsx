@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { isResolvedLocation, isLocationSuggestion, type LocationSuggestion, type ResolvedLocation } from './lib/location-resolution';
 
-export function LocationSearch({ query, selected, onChange }: {
-  query: string; selected: ResolvedLocation | null; onChange(query: string, location: ResolvedLocation | null): void;
+export function LocationSearch({ query, selected, staffConfirmed = false, onChange }: {
+  query: string; selected: ResolvedLocation | null; staffConfirmed?: boolean; onChange(query: string, location: ResolvedLocation | null): void;
 }) {
   const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [busy, setBusy] = useState(false);
@@ -18,7 +18,7 @@ export function LocationSearch({ query, selected, onChange }: {
     routeController.current?.abort();
     setBusy(false); setFailed(false);
     setSuggestions([]);
-    if (selected) { setStatus(`${selected.representativeDrivingMiles !== null ? `Approximate representative route: ${selected.representativeDrivingMiles.toFixed(1)} driving miles. ` : ''}${selected.reason}`); return; }
+    if (selected) { setStatus(staffConfirmed ? 'Staff-confirmed distance tier selected for this estimate. The city route remains unverified.' : `${selected.representativeDrivingMiles !== null ? `Approximate representative route: ${selected.representativeDrivingMiles.toFixed(1)} driving miles. ` : ''}${selected.reason}`); return; }
     if (query.trim().length < 2) { setStatus('Enter at least two characters to search California locations.'); return; }
     const controller = new AbortController();
     let active = true;
@@ -36,7 +36,7 @@ export function LocationSearch({ query, selected, onChange }: {
       finally { if (active && request === sequence.current) setBusy(false); }
     }, 300);
     return () => { active = false; ++sequence.current; clearTimeout(timer); controller.abort(); routeController.current?.abort(); };
-  }, [query, selected, retry]);
+  }, [query, selected, staffConfirmed, retry]);
   async function select(location: LocationSuggestion) {
     routeController.current?.abort();
     const controller = new AbortController(); routeController.current = controller;

@@ -87,7 +87,7 @@ describe('versioned local city and route data', () => {
   it('keeps canonical city and derived tier in the validated request, without trusting client labels', async () => {
     fixtures.routes.push(route()); const f = form(); f.set('cityLabel', 'Untrusted name');
     const valid = await validateEstimateForm(f); expect(valid.ok).toBe(true);
-    if (valid.ok) expect(valid.value.inputs).toMatchObject({ distanceTier: 'under25', location: { id: lake, label: 'Lake Forest, Orange County, CA', distanceTier: 'under25' } });
+    if (valid.ok) expect(valid.value.inputs).toMatchObject({ distanceTier: 'under25', distanceTierSource: 'verified_city_route', location: { id: lake, label: 'Lake Forest, Orange County, CA', distanceTier: 'under25' } });
     vi.stubEnv('OPENAI_API_KEY', 'synthetic'); fixtures.parse.mockResolvedValueOnce({ output_parsed: sampleAnalysis() });
     const response = await POST(new Request('http://local/api/analyze', { method: 'POST', body: f }) as never);
     expect(response.status).toBe(200); expect((await response.json()).inputs.location.id).toBe(lake);
@@ -104,5 +104,46 @@ describe('versioned local city and route data', () => {
     const f = form(); f.delete('photos'); const result = await validateEstimateForm(f);
     expect(result).toMatchObject({ ok: false, error: 'Upload at least one photo.' });
     if (result.ok === false) expect(result.reviewLocation).toBeUndefined();
+  });
+  it('accepts each existing staff tier per estimate without creating a city mapping or mileage', async () => {
+    for (const tier of ['under25', '25to40', '40to65']) {
+      const f = form(); f.set('staffDistanceTier', tier);
+      expect(await validateEstimateForm(f)).toMatchObject({ ok: true, value: { inputs: { distanceTier: tier, distanceTierSource: 'staff_confirmed',
+        location: { id: lake, status: 'staff_review_required', distanceTier: null, representativeDrivingMiles: null } } } });
+    }
+    expect(resolveCity(lake)).toMatchObject({ status: 'staff_review_required', distanceTier: null, representativeDrivingMiles: null });
+    expect(fixtures.routes).toEqual([]);
+  });
+  it('rejects invalid, duplicate, file-valued and mapped-city overrides', async () => {
+    for (const value of ['', '65to100', '25', 'under25 ']) { const f = form(); f.set('staffDistanceTier', value); expect((await validateEstimateForm(f)).ok).toBe(false); }
+    const duplicate = form(); duplicate.append('staffDistanceTier', 'under25'); duplicate.append('staffDistanceTier', '25to40');
+    expect((await validateEstimateForm(duplicate)).ok).toBe(false);
+    const file = form(); file.set('staffDistanceTier', new Blob(['under25']), 'tier.txt'); expect((await validateEstimateForm(file)).ok).toBe(false);
+    fixtures.routes.push(route()); const mapped = form(); mapped.set('staffDistanceTier', '25to40'); expect((await validateEstimateForm(mapped)).ok).toBe(false);
+    const legacy = makeForm(); legacy.set('staffDistanceTier', 'under25'); expect((await validateEstimateForm(legacy)).ok).toBe(false);
+  });
+  it('prices unmapped Lake Forest and binds its staff tier and original context through clarification', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'synthetic');
+    const analysis = sampleAnalysis({ confidencePercent: 73, observedFacts: ['Sealed boxes beside the pile.'], questionsToAsk: ['What is inside the boxes?'], uncertaintyNotes: ['Contents unclear.'] });
+    fixtures.parse.mockResolvedValue({ output_parsed: analysis });
+    const initial = form(); initial.set('staffDistanceTier', '25to40');
+    const first = await (await POST(new Request('http://local/api/analyze', { method: 'POST', body: initial }) as never)).json();
+    expect(first.pricing.minimumPrice).toBe(145); expect(first.inputs.distanceTierSource).toBe('staff_confirmed');
+    expect(first.clarification.questions.some((q: { id: string }) => q.id === 'contents')).toBe(true);
+    const reassess = form(); reassess.set('staffDistanceTier', '25to40'); reassess.set('clarification', JSON.stringify({ token: first.clarification.token, history: first.clarification.history,
+      answers: first.clarification.questions.map((q: { id: string }) => ({ id: q.id, answer: 'lightweight decorations', notSure: false })) }));
+    const second = await (await POST(new Request('http://local/api/analyze', { method: 'POST', body: reassess }) as never)).json();
+    expect(second.inputs).toEqual(first.inputs); expect(second.pricing.minimumPrice).toBe(145); expect(second.firmQuoteEligible).toBe(false);
+    expect(second.inputs.location.representativeDrivingMiles).toBeNull();
+    const call = fixtures.parse.mock.calls[1][0]; expect(JSON.stringify(call)).toContain('lightweight decorations');
+    reassess.set('staffDistanceTier', 'under25');
+    const tampered = await POST(new Request('http://local/api/analyze', { method: 'POST', body: reassess }) as never);
+    expect(tampered.status).toBe(400); expect((await tampered.json()).errorCode).toBe('invalid_clarification'); expect(fixtures.parse).toHaveBeenCalledTimes(2);
+  });
+  it('does not fabricate pricing when analysis fails after a valid staff confirmation', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'synthetic'); fixtures.parse.mockRejectedValueOnce(new Error('synthetic provider failure'));
+    const f = form(); f.set('staffDistanceTier', 'under25');
+    const result = await (await POST(new Request('http://local/api/analyze', { method: 'POST', body: f }) as never)).json();
+    expect(result).toMatchObject({ status: 'analysis_failed', pricing: null, analysis: null });
   });
 });
