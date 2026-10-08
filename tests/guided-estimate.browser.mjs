@@ -38,7 +38,7 @@ try {
         statusReasons: ['Staff review before quoting.'], pricing: { ...pricing, customerMessage: null },
         clarification: submissions === 1 ? { token: 'synthetic-signed-context', history: [], round: 1, optional: true, canSkip: true, questions: [{ id: 'contents', text: 'What is inside the sealed boxes?' }] } : null } });
     });
-    await page.goto(process.env.SMOKE_URL || 'http://127.0.0.1:3017');
+    await page.goto(process.env.SMOKE_URL || 'http://127.0.0.1:3017/staff-estimator');
     await page.getByRole('button', { name: 'Start estimate', exact: true }).click();
     const input = page.getByLabel('Southern California city or neighborhood', { exact: true });
     await input.fill('No such city xyz');

@@ -66,7 +66,7 @@ await page.route('**/api/analyze', async (route) => {
       adjustments: 0, adjustmentNotes: [], competitorSummary: 'Synthetic', customerMessage: 'Synthetic quote.' } } });
 });
 try {
-  await page.goto('http://127.0.0.1:3015');
+  await page.goto('http://127.0.0.1:3015/staff-estimator');
   const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 1600; return c.toDataURL().split(',')[1]; });
   await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
   await page.locator('textarea[name=notes]').fill('Synthetic original scope');

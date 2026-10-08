@@ -46,6 +46,16 @@ export function loadedPercentRange(text: string, point: number): [number, number
 const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const dollars = (value: number) => `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
 
+export function volumeBaseline(percent: number, rangeText: string) {
+  if (!Number.isFinite(percent) || percent < 1 || percent > 200) throw new Error('Unsupported loaded volume; staff review required.');
+  const range = loadedPercentRange(rangeText, percent);
+  const point = money(percent / 100 * FULL_LOAD_RATE);
+  const low = money((range?.[0] ?? percent) / 100 * FULL_LOAD_RATE);
+  const high = money((range?.[1] ?? percent) / 100 * FULL_LOAD_RATE);
+  return { percent, cubicYards: Number((percent / 100 * 12).toFixed(4)), equivalents: percent / 100,
+    point, low, high, range, display: low === high ? dollars(low) : `${dollars(low)}\u2013${dollars(high)}` };
+}
+
 export function priceJob(inputs: JobInputs, analysis: VisionAnalysis, _reconciled?: PricingFacts) {
   const minimums = { under25: 130, '25to40': 145, '40to65': 175 };
   const minPrice = minimums[inputs.distanceTier];

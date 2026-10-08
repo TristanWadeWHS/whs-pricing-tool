@@ -48,6 +48,16 @@ function adapterFor(options: {
 }
 
 describe('photo optimization', () => {
+  it('reserves a ten-photo transport budget across separate room batches without recompressing prior photos', async () => {
+    const batches = [];
+    for (const count of [3, 7]) {
+      const result = await optimizePhotoSelection(Array.from({ length: count }, (_, i) => file(`room-${i}.jpg`, 'image/jpeg', 2000000)), adapterFor(), 10);
+      expect(result.ok).toBe(true); if (result.ok) batches.push(...result.photos);
+    }
+    expect(batches).toHaveLength(10);
+    expect(batches.reduce((total, p) => total + p.optimizedBytes, 0)).toBeLessThanOrEqual(SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES);
+    expect((await optimizePhotoSelection([file('bad.jpg', 'image/jpeg', 20)], adapterFor(), 11)).ok).toBe(false);
+  });
   it('optimizes a normal oversized iPhone-style JPEG below the server image limit', async () => {
     const result = await optimizePhotoSelection([file('iphone.jpg', 'image/jpeg', 6 * 1024 * 1024)], adapterFor());
 

@@ -49,7 +49,7 @@ async function until(test) {
   const start = Date.now(); while (!test()) { if (Date.now() - start > 15000) throw new Error('Synthetic synchronization timeout'); await new Promise((r) => setTimeout(r, 30)); }
 }
 try {
-  await page.goto('http://127.0.0.1:3015');
+  await page.goto('http://127.0.0.1:3015/staff-estimator');
   const image = await page.evaluate(() => { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1600; return canvas.toDataURL('image/png').split(',')[1]; });
   await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
   await page.locator('textarea[name=notes]').fill('Synthetic original details');
