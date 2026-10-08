@@ -96,6 +96,7 @@ export function finishConversation(state: ConversationState, model: Conversation
     || model.analysis.heavyDebrisRisk !== 'low' || model.analysis.difficulty === 'hard';
   if (state.questions.length) reasons.push('Please answer the scope questions below, or choose Not sure, before I prepare the estimate.');
   const baseline = reasons.length ? null : volumeBaseline(model.analysis.estimatedLoadPercent, model.analysis.estimatedLoadRange);
+  state.completedEstimate = baseline ? { percent: baseline.percent, rangeText: model.analysis.estimatedLoadRange, exceptional } : undefined;
   const review = exceptional || model.analysis.confidencePercent < 85 || model.analysis.photoAngleQuality !== 'good'
     || model.analysis.hiddenDebrisRisk !== 'low' || state.questions.length > 0 || state.answers.some((answer) => answer.notSure) || reasons.length > 0;
   return { items: state.items, questions: state.questions, baseline, review,

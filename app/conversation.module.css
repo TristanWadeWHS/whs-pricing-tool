@@ -43,6 +43,17 @@
 .photos { display:flex; gap:10px; overflow:auto; max-height:105px; }.photos figure { margin:0; flex:0 0 68px; }.photos img { object-fit:cover; border-radius:4px; }.photos figcaption { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:68px; }
 .composer summary { padding:4px 0 8px; font-size:12px; }.srOnly { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 .reply { display:flex; align-items:center; gap:10px; font-size:12px; padding-bottom:8px; }.reply span { flex:1; }.reply button { min-height:32px; padding:4px 8px; background:white; color:#193d2b; white-space:nowrap; font-size:12px; }
+.followUp { border-top:1px solid #bccbc4; margin-top:24px; padding-top:20px; overflow-wrap:anywhere; }
+.followUp h2 { font-size:22px; }.followUp h3 { font-size:18px; }.followUp p,.followUp li { font-size:14px; }
+.followUp label { font-size:14px; }.followUp input { font-size:16px; max-width:100%; min-width:0; }
+.followUp dl { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px 16px; font-size:14px; }
+.followUp dd { margin:0; font-weight:600; overflow-wrap:anywhere; }.followUp dt { color:#536760; }
+.promotion { padding:12px 0; border-block:1px solid #bccbc4; margin-bottom:18px; }
+.bookingGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.contactChoices,.bookingActions { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; }
+.contactChoices label,.confirmBooking { display:flex; align-items:flex-start; gap:8px; }
+.followUp input[type=radio],.followUp input[type=checkbox] { width:18px; height:18px; flex:0 0 18px; margin:3px 0; }
+.bookingActions button { font-size:14px; min-height:44px; }.followUp button:disabled { opacity:.55; cursor:not-allowed; }
 @keyframes pulse { 50% { opacity:.3; } }
 @media(prefers-reduced-motion:reduce) { .busy span { animation:none; } }
 @media(max-width:600px) { .header { padding:12px 16px; gap:8px; }.header a { font-size:15px; }.header small { font-size:10px; }.header img { width:38px; height:38px; }.pilot { font-size:10px; }.log { padding:20px 18px; }.welcome img { width:90px; height:90px; }.welcome h1 { font-size:26px; }.welcome p { font-size:15px; }.composer { padding:10px 14px max(10px,env(safe-area-inset-bottom)); }.tools { gap:8px; }.room { max-width:125px; }.tools button { padding:8px 12px; }.scopeItem { grid-template-columns:1fr 125px; }.baseline h2 { font-size:30px; } }
