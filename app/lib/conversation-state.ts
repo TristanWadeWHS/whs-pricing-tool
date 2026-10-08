@@ -81,25 +81,31 @@ export function finishConversation(state: ConversationState, model: Conversation
   const unbounded = [...model.analysis.uncertaintyNotes, ...model.analysis.warnings, model.analysis.estimatedLoadRange].join(' ');
   if (!model.analysis.visibleItems.length || /(?:cannot|unable to)\s+(?:estimate|bound|determine|quantify)\s+(?:the\s+)?(?:total\s+)?(?:load|volume|quantity)|(?:volume|scope|quantity)\s+(?:is |remains )?(?:unbounded|not estimable)/i.test(unbounded)
     || model.analysis.estimatedLoadCount > 2) reasons.push('The removal volume is not bounded within this proof of concept. Staff review is needed before pricing.');
-  state.questions = model.questions.filter((question) => previous.get(question.itemId)?.choice === 'included'
+  // A later model omission must not silently resolve a signed, unanswered question.
+  const pendingQuestions = state.questions.filter((question) => previous.get(question.itemId)?.choice === 'included'
+    && !state.answers.some((answer) => answer.id === question.id));
+  const newQuestions = model.questions.filter((question) => previous.get(question.itemId)?.choice === 'included'
     && previous.get(question.itemId)!.photoRefs.includes(question.photoRef)
     && model.analysis.observedFacts.includes(question.evidence)
     && ({ contents: /sealed|closed|opaque|contents/i, dimensions: /dimension|size|scale|measure/i, dismantling: /bolt|attach|fastener|dismantl|disassembl/i })[question.topic].test(question.evidence)
-    && !state.answers.some((answer) => answer.id === `${question.itemId}:${question.topic}`))
+    && !state.answers.some((answer) => answer.id === `${question.itemId}:${question.topic}`));
+  state.questions = [...pendingQuestions, ...newQuestions]
     .filter((question, index, all) => all.findIndex((q) => q.itemId === question.itemId && q.topic === question.topic) === index)
     .slice(0, 2).map((question) => ({ ...question, text: safeModelText(question.text), evidence: safeModelText(question.evidence), id: `${question.itemId}:${question.topic}` }));
   const exceptional = state.services.some((service) => /demo|heavy|appliance|storage/.test(service))
     || model.analysis.heavyDebrisRisk !== 'low' || model.analysis.difficulty === 'hard';
+  if (state.questions.length) reasons.push('Please answer the scope questions below, or choose Not sure, before I prepare the estimate.');
   const baseline = reasons.length ? null : volumeBaseline(model.analysis.estimatedLoadPercent, model.analysis.estimatedLoadRange);
-  const scope = included.map((item) => item.label).join(', ');
   const review = exceptional || model.analysis.confidencePercent < 85 || model.analysis.photoAngleQuality !== 'good'
     || model.analysis.hiddenDebrisRisk !== 'low' || state.questions.length > 0 || state.answers.some((answer) => answer.notSure) || reasons.length > 0;
   return { items: state.items, questions: state.questions, baseline, review,
-    message: baseline ? `For the items you confirmed (${scope}), I estimate ${baseline.range ? `${baseline.range[0]}-${baseline.range[1]}%` : `about ${baseline.percent}%`} of a 12-cubic-yard load. At $550 per full load, the provisional volume baseline is ${baseline.display}. Is there anything else you'd like to include?`
-      : state.items.some((item) => item.choice === 'unresolved') ? 'Let\'s make sure I have the right scope. Which of these items should we include?' : 'I need a little more scope information before showing a baseline.',
+    message: baseline ? 'Thanks for walking through the details with me! Your provisional estimate is ready below for the team to review. Happy to help you make some space!'
+      : state.items.some((item) => item.choice === 'unresolved') ? 'Happy to help! Let\'s make sure we have just the right items. Which of these should we include?'
+        : state.questions.length ? 'Thanks, we\'re making progress! A few details below will help me finish your estimate.'
+          : 'Thanks for the details! The team needs to review the scope issues below before I can prepare an estimate.',
     reasons: [...reasons, ...(exceptional ? ['Heavy materials or special services require staff review. This volume baseline is not an all-inclusive quote; no special-service charges have been invented.'] : []),
       'Location and access have not been priced. No distance tier, minimum, or access charge is assumed.',
       'Provisional estimate only. Staff must review scope, access, disposal and any applicable minimum before quoting.',
       ...(state.answers.some((answer) => answer.notSure) ? ['An answer remains unknown; staff review is required.'] : [])],
-    assumptions: model.analysis.assumptions.map(safeModelText) };
+    assumptions: baseline ? model.analysis.assumptions.map(safeModelText) : [] };
 }

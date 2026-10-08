@@ -67,6 +67,28 @@ describe('Winston confirmed scope and deterministic baseline', () => {
     expect(volumeBaseline(150, '150%')).toMatchObject({ point: 825, low: 825, high: 825 });
     expect(volumeBaseline(60, '50-70%')).toMatchObject({ low: 275, high: 385 });
   });
+  it('withholds amounts and calculations until grounded questions are answered, even if the model later omits them', () => {
+    const s = state();
+    const waiting = finishConversation(s, model({ questions: [question] }));
+    expect(waiting.baseline).toBeNull(); expect(waiting.assumptions).toEqual([]);
+    expect(JSON.stringify(waiting)).not.toMatch(/\$|330|550/);
+    expect(waiting.message).toContain("we're making progress");
+    const omitted = finishConversation(s, model());
+    expect(omitted.questions).toHaveLength(1); expect(omitted.baseline).toBeNull();
+    s.answers = [{ id: 'i_boxes:contents', text: 'lightweight decorations', notSure: false }];
+    const ready = finishConversation(s, model({ questions: [question] }));
+    expect(ready.questions).toEqual([]); expect(ready.baseline?.point).toBe(330);
+    expect(ready.message).toContain('Happy to help'); expect(ready.message).not.toMatch(/\$|330|550/);
+    expect(ready.items).toEqual(waiting.items);
+  });
+  it('publishes supported endpoint prices only in the completed baseline, never chat history', () => {
+    const s = state(); const m = model({ questions: [question], analysis: { ...model().analysis, estimatedLoadRange: '50-70%' } });
+    expect(finishConversation(s, m).baseline).toBeNull();
+    s.answers = [{ id: 'i_boxes:contents', text: '', notSure: true }];
+    const ready = finishConversation(s, m);
+    expect(ready.baseline).toMatchObject({ low: 275, high: 385 });
+    expect(ready.review).toBe(true); expect(ready.message).not.toMatch(/\$|275|385/);
+  });
   it('retains specific answers and does not ask the same topic again, including Not sure', () => {
     for (const notSure of [false, true]) {
       const s = state(); s.answers = [{ id: 'i_boxes:contents', text: notSure ? '' : 'lightweight decorations', notSure }];
@@ -122,17 +144,27 @@ describe('Winston confirmed scope and deterministic baseline', () => {
 describe('conversation transport / mocked provider lifecycle', () => {
   it('accepts description first, acknowledges multiple supported services and does not call a model without photos', async () => {
     const result = await post({ services: ['mixed junk', 'demo debris'] }, '', []);
-    expect(result.status).toBe(200); expect(result.body.message).toContain('Junk pickup and Light demolition'); expect(parse).not.toHaveBeenCalled();
+    expect(result.status).toBe(200); expect(result.body.message).toContain('Happy to help with Junk pickup and Light demolition!'); expect(parse).not.toHaveBeenCalled();
     expect(readConversation(result.body.token).messages[0].text).toContain('boxes');
+  });
+  it('retains sequential immediately sent service choices in signed context without analysis', async () => {
+    const first = await post({ message: "I'd like help with Junk pickup.", services: ['mixed junk'] }, '', []);
+    const second = await post({ message: "I'd like help with Furniture.", services: ['mixed junk', 'furniture'] }, first.body.token, []);
+    expect(readConversation(second.body.token).services).toEqual(['mixed junk', 'furniture']);
+    expect(readConversation(second.body.token).messages).toHaveLength(2);
+    expect(second.body.message).toContain('Junk pickup and Furniture');
+    expect(second.body.baseline).toBeNull(); expect(parse).not.toHaveBeenCalled();
   });
   it('preserves photo batches, scope actions and question-linked answers, then recalculates additions/removals', async () => {
     const first = await post({}, '', []);
     parse.mockResolvedValue({ output_parsed: model({ questions: [question] }) });
     const inventory = await post({}, first.body.token); expect(inventory.body.baseline).toBeNull();
     const confirmed = await post({ actions: [{ id: 'i_boxes', choice: 'included' }, { id: 'i_fridge', choice: 'excluded' }] }, inventory.body.token);
-    expect(confirmed.body.baseline.point).toBe(330); expect(confirmed.body.questions[0].id).toBe('i_boxes:contents');
+    expect(confirmed.body.baseline).toBeNull(); expect(confirmed.body.questions[0].id).toBe('i_boxes:contents');
+    expect(JSON.stringify({ ...confirmed.body, token: undefined })).not.toMatch(/\$|330|550/);
     const answered = await post({ answers: [{ id: 'i_boxes:contents', text: 'lightweight decorations', notSure: false }] }, confirmed.body.token);
     expect(answered.body.questions).toEqual([]); expect(answered.body.items[1].choice).toBe('excluded');
+    expect(answered.body.baseline.point).toBe(330);
     expect(JSON.stringify(parse.mock.lastCall![0].input)).toContain('lightweight decorations');
     parse.mockResolvedValue({ output_parsed: model({ pricedItemIds: ['i_boxes', 'i_fridge'], analysis: sampleAnalysis({ estimatedLoadPercent: 80, estimatedLoadRange: '80%' }) }) });
     const added = await post({ actions: [{ id: 'i_fridge', choice: 'included' }], photoRooms: ['Garage', 'Bedroom'] }, answered.body.token, [photo(), photo(1)]);

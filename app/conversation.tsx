@@ -7,7 +7,7 @@ import styles from './conversation.module.css';
 
 type Photo = { file: File; room: string; url: string; hash: string };
 type Message = { role: 'user' | 'winston'; text: string; photos?: number; room?: string };
-const opening = 'Hi, I\u2019m Winston! What can we help you remove today? Tell me what you\u2019re getting rid of and attach some photos.';
+const opening = 'Hi, I\u2019m Winston! I\u2019m excited to help you make some space. What can our Wade Home Services team take off your hands today?';
 
 export default function Conversation() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -76,21 +76,25 @@ export default function Conversation() {
       if (run === generation.current) setError(error instanceof Error && error.name !== 'AbortError' ? error.message : 'The request timed out. Your conversation and photos are retained. Retry when ready.');
     } finally { clearTimeout(timeout); if (run === generation.current) { locked.current = false; setBusy(false); } }
   }
-  function send(mode: 'message' | 'scope' | 'answers' = 'message') {
+  function send(mode: 'message' | 'scope' | 'answers' | 'service' = 'message', service?: readonly [string, string]) {
     if (locked.current || photoLock.current) return;
-    const message = mode === 'message' ? text.trim() : mode === 'scope' ? 'Please use my confirmed scope choices.' : 'Here are my answers.';
+    if (mode === 'service' && (!service || services.includes(service[0]))) return;
+    const selectedServices = service ? [...services, service[0]] : services;
+    const message = service ? `I'd like help with ${service[1]}.` : mode === 'message' ? text.trim() : mode === 'scope' ? 'Please use my confirmed scope choices.' : 'Here are my answers.';
     if (!message && photos.length === sentPhotos.current) return;
     const form = new FormData(); if (token.current) form.set('token', token.current);
-    form.set('submission', JSON.stringify({ message, room: room.trim(), services, photoRooms: photos.map((p) => p.room),
+    form.set('submission', JSON.stringify({ message, room: room.trim(), services: selectedServices, photoRooms: photos.map((p) => p.room),
       actions: mode === 'scope' ? Object.entries(choices).map(([id, choice]) => ({ id, choice })) : [],
       answers: mode === 'answers' ? (result?.questions ?? []).map((q) => ({ id: q.id, text: answers[q.id]?.text ?? '', notSure: answers[q.id]?.notSure ?? false }))
         : mode === 'message' && replyTo && message ? [{ id: replyTo, text: message, notSure: /^(?:not sure|i don'?t know|unknown)[.!]?$/i.test(message) }] : [] }));
     for (const photo of photos) form.append('photos', photo.file);
     setMessages((old) => [...old, { role: 'user', text: message || 'Here are the photos.', photos: photos.length - sentPhotos.current, room: room.trim() || 'General' }]);
     if (mode === 'message') setText('');
+    if (service) setServices(selectedServices);
     void transmit(form);
   }
   const pending = result?.items.filter((item) => item.choice === 'unresolved') ?? [];
+  const completed = !busy && !error && !pending.length && !result?.questions.length && !!result?.baseline;
   function scopeEditor() {
     return <fieldset disabled={busy || optimizing} className={styles.scope}>
       {result?.items.map((item) => <div className={styles.scopeItem} key={item.id}>
@@ -107,17 +111,14 @@ export default function Conversation() {
     <div className={styles.pilot}>Protected Preview · Provisional estimates, reviewed by your team</div>
     <div ref={log} className={styles.log} role="log" aria-label="Conversation with Winston" aria-live="polite" aria-relevant="additions">
       <section className={styles.welcome}><img src="/winston-logo.png" width="116" height="116" alt="Winston, your removal guide" /><p className={styles.eyebrow}>A little less clutter. A little more room.</p><h1>Let&apos;s make some space.</h1><p>{opening}</p></section>
-      {!messages.length && <div className={styles.services} aria-label="Services">{SERVICE_CHOICES.map(([value, label]) => <button type="button" key={value} aria-pressed={services.includes(value)} onClick={() => {
-        const selected = services.includes(value); setServices((old) => selected ? old.filter((s) => s !== value) : [...old, value]);
-        if (!selected) setText((old) => old ? `${old}, ${label}` : label); composer.current?.focus();
-      }}>{label}</button>)}</div>}
+      <div className={styles.services} aria-label="Services">{SERVICE_CHOICES.map(([value, label]) => <button type="button" key={value} aria-pressed={services.includes(value)} disabled={busy || optimizing || services.includes(value)} onClick={() => send('service', [value, label])}>{label}</button>)}</div>
       {messages.map((message, i) => <article key={i} className={message.role === 'user' ? styles.user : styles.winston}>
         <small>{message.role === 'user' ? 'You' : 'Winston'}</small><p>{message.text}</p>
         {!!message.photos && <small>{message.photos} photo{message.photos === 1 ? '' : 's'} · {message.room}</small>}
       </article>)}
-      {busy && <p className={styles.busy} role="status">Winston is reviewing your photos and confirmed scope<span aria-hidden="true">...</span></p>}
+      {busy && <p className={styles.busy} role="status">Thanks! I&apos;m reviewing your photos and scope. We&apos;re working on your estimate<span aria-hidden="true">...</span></p>}
       {!busy && result && <section className={styles.result} aria-label="Current scope and estimate">
-        {result.baseline && <div className={styles.baseline}><small>PROVISIONAL VOLUME BASELINE</small><h2>{result.baseline.display}</h2><p>AI-estimated {result.baseline.percent}% · {result.baseline.cubicYards} cubic yards · {result.baseline.equivalents} trailer equivalents</p><p>No location minimum or access charge applied. Not a final quote.</p></div>}
+        {completed && result.baseline && <div className={styles.baseline}><small>PROVISIONAL VOLUME BASELINE</small><h2>{result.baseline.display}</h2><p>AI-estimated {result.baseline.percent}% · {result.baseline.cubicYards} cubic yards · {result.baseline.equivalents} trailer equivalents</p><p>No location minimum or access charge applied. Not a final quote.</p></div>}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>
           {result.questions.map((q) => <div className={styles.question} key={q.id}><label htmlFor={q.id}>{q.text}</label><small>Photo {q.photoRef}: {q.evidence}</small>
@@ -125,7 +126,7 @@ export default function Conversation() {
             <label className={styles.unknown}><input type="checkbox" checked={answers[q.id]?.notSure ?? false} onChange={(e) => setAnswers((old) => ({ ...old, [q.id]: { text: old[q.id]?.text ?? '', notSure: e.target.checked } }))} />Not sure</label>
           </div>)}<button type="submit">Send answers</button></fieldset></form>}
         {!!result.reasons.length && <details open={!result.baseline}><summary>Review status &amp; next steps</summary><ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></details>}
-        {!!result.assumptions.length && <details><summary>Assumptions &amp; volume calculation</summary><ul>{result.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul><p>Loaded percentage / 100 × $550. A supported volume interval uses both endpoints. This is not a statistical prediction interval.</p></details>}
+        {completed && !!result.assumptions.length && <details><summary>Assumptions &amp; volume calculation</summary><ul>{result.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul><p>Loaded percentage / 100 × $550. A supported volume interval uses both endpoints. This is not a statistical prediction interval.</p></details>}
       </section>}
       {error && <div role="alert" className={styles.error}><p>{error}</p><button type="button" disabled={busy || optimizing} onClick={() => retry.current && void transmit(retry.current)}>Retry last message</button></div>}
     </div>
