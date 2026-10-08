@@ -66,7 +66,7 @@ export type PhotoOptimizerAdapter = {
   encode(image: DecodedImage, target: { width: number; height: number; quality: number }): Promise<Blob | null>;
 };
 
-export async function optimizePhotoSelection(files: File[], adapter = browserPhotoOptimizerAdapter): Promise<OptimizeSelectionResult> {
+export async function optimizePhotoSelection(files: File[], adapter = browserPhotoOptimizerAdapter, reservedSlots = files.length): Promise<OptimizeSelectionResult> {
   if (files.length === 0) {
     return { ok: false, error: 'Upload at least one photo.' };
   }
@@ -75,7 +75,8 @@ export async function optimizePhotoSelection(files: File[], adapter = browserPho
     return { ok: false, error: `Upload no more than ${PHOTO_OPTIMIZATION_LIMITS.maxPhotos} photos.` };
   }
 
-  const initialBudget = getProcessedImageBudget(files.length, true);
+  if (!Number.isInteger(reservedSlots) || reservedSlots < files.length || reservedSlots > MAX_ESTIMATE_PHOTOS) return { ok: false, error: 'Invalid photo capacity.' };
+  const initialBudget = getProcessedImageBudget(reservedSlots, reservedSlots === files.length);
   const firstPass = await optimizeWithBudget(files, initialBudget, adapter);
   if (!firstPass.ok) return firstPass;
 
@@ -84,7 +85,7 @@ export async function optimizePhotoSelection(files: File[], adapter = browserPho
     return { ok: true, photos: firstPass.photos, totalBytes, message: buildReadyMessage(firstPass.photos) };
   }
 
-  const finalBudget = getProcessedImageBudget(files.length, false);
+  const finalBudget = getProcessedImageBudget(reservedSlots, false);
   const finalPass = await optimizeWithBudget(files, finalBudget, adapter);
   if (!finalPass.ok) return finalPass;
 

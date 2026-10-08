@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const baseURL = 'http://127.0.0.1:3015';
+const baseURL = 'http://127.0.0.1:3015/staff-estimator';
 const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge' });
 const context = await browser.newContext({ httpCredentials: { username: 'staff', password: 'synthetic-preview-test' } });
 const page = await context.newPage();

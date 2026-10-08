@@ -56,7 +56,7 @@ await page.route('**/api/analyze', async (route) => {
     analysis: null, pricing: null, inputs: null, clarification: null, statusReasons: ['Removal volume cannot be bounded. Confirm the item quantities.'] } });
 });
 try {
-  await page.goto('http://127.0.0.1:3015');
+  await page.goto('http://127.0.0.1:3015/staff-estimator');
   await page.getByRole('heading', { name: 'Internal Pricing Tool' }).waitFor();
   assert.equal(await page.locator('[data-nextjs-dialog], .vite-error-overlay').count(), 0);
   const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 1600; return c.toDataURL().split(',')[1]; });
