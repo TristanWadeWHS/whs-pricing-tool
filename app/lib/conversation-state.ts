@@ -1,6 +1,7 @@
 import 'server-only';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { volumeBaseline } from './pricing';
+import { reconcileLoadedVolume } from './conversation-volume';
 import type { ConversationModel, ConversationState, ConversationResult, ScopeItem } from './conversation-schema';
 
 function signature(value: string) {
@@ -77,14 +78,21 @@ export function finishConversation(state: ConversationState, model: Conversation
     && state.answers.some((answer) => answer.id.startsWith(`${conflict.itemId}:`) && !answer.notSure && answer.text === conflict.contradicts)
     && model.analysis.observedFacts.includes(conflict.evidence)
     && conflict.evidence.length >= 20 && !/\b(?:unknown|unclear|maybe|may|might|possibly|potential)\b/i.test(conflict.evidence));
-  for (const conflict of conflicts) reasons.push(`Photo ${conflict.photoRef}, ${previous.get(conflict.itemId)!.label}: ${safeModelText(conflict.evidence)} Confirm this conflict with staff; your scope choice has not been changed.`);
-  const unbounded = [...model.analysis.uncertaintyNotes, ...model.analysis.warnings, model.analysis.estimatedLoadRange].join(' ');
-  if (!model.analysis.visibleItems.length || /(?:cannot|unable to)\s+(?:estimate|bound|determine|quantify)\s+(?:the\s+)?(?:total\s+)?(?:load|volume|quantity)|(?:volume|scope|quantity)\s+(?:is |remains )?(?:unbounded|not estimable)/i.test(unbounded)
-    || model.analysis.estimatedLoadCount > 2) reasons.push('The removal volume is not bounded within this proof of concept. Staff review is needed before pricing.');
+  const handlingReview: string[] = [];
+  for (const conflict of conflicts) (conflict.impact === 'handling' ? handlingReview : reasons).push(`Photo ${conflict.photoRef}, ${previous.get(conflict.itemId)!.label}: ${safeModelText(conflict.evidence)} Confirm this conflict with staff; your scope choice has not been changed.`);
+  const volume = reconcileLoadedVolume(state, model, safeModelText);
+  reasons.push(...volume.blockers);
+  handlingReview.push(...volume.handling);
+  const dimensionsAlreadyBounded = (itemId: string) => !volume.blockers.length
+    && model.loadedGroups.some((group) => group.itemIds.includes(itemId) && group.lowCubicYards !== null && group.highCubicYards !== null);
   // A later model omission must not silently resolve a signed, unanswered question.
   const pendingQuestions = state.questions.filter((question) => previous.get(question.itemId)?.choice === 'included'
+    && !(question.topic === 'dimensions' && dimensionsAlreadyBounded(question.itemId))
     && !state.answers.some((answer) => answer.id === question.id));
   const newQuestions = model.questions.filter((question) => previous.get(question.itemId)?.choice === 'included'
+    && question.impact === 'volume' && !!question.volumeEffect
+    && !(question.topic === 'dimensions' && dimensionsAlreadyBounded(question.itemId))
+    && /quantity|count|number|amount|depth|size|dimension|extent|loaded|volume|stack|pack|flatten|fold|disassembl|dismantl|scope/i.test(question.volumeEffect)
     && previous.get(question.itemId)!.photoRefs.includes(question.photoRef)
     && model.analysis.observedFacts.includes(question.evidence)
     && ({ contents: /sealed|closed|opaque|contents/i, dimensions: /dimension|size|scale|measure/i, dismantling: /bolt|attach|fastener|dismantl|disassembl/i })[question.topic].test(question.evidence)
@@ -93,10 +101,10 @@ export function finishConversation(state: ConversationState, model: Conversation
     .filter((question, index, all) => all.findIndex((q) => q.itemId === question.itemId && q.topic === question.topic) === index)
     .slice(0, 2).map((question) => ({ ...question, text: safeModelText(question.text), evidence: safeModelText(question.evidence), id: `${question.itemId}:${question.topic}` }));
   const exceptional = state.services.some((service) => /demo|heavy|appliance|storage/.test(service))
-    || model.analysis.heavyDebrisRisk !== 'low' || model.analysis.difficulty === 'hard';
+    || model.analysis.heavyDebrisRisk !== 'low' || model.analysis.difficulty === 'hard' || handlingReview.length > 0;
   if (state.questions.length) reasons.push('Please answer the scope questions below, or choose Not sure, before I prepare the estimate.');
-  const baseline = reasons.length ? null : volumeBaseline(model.analysis.estimatedLoadPercent, model.analysis.estimatedLoadRange);
-  state.completedEstimate = baseline ? { percent: baseline.percent, rangeText: model.analysis.estimatedLoadRange, exceptional } : undefined;
+  const baseline = reasons.length ? null : volumeBaseline(volume.percent, volume.rangeText);
+  state.completedEstimate = baseline ? { percent: baseline.percent, rangeText: volume.rangeText, exceptional } : undefined;
   const review = exceptional || model.analysis.confidencePercent < 85 || model.analysis.photoAngleQuality !== 'good'
     || model.analysis.hiddenDebrisRisk !== 'low' || state.questions.length > 0 || state.answers.some((answer) => answer.notSure) || reasons.length > 0;
   return { items: state.items, questions: state.questions, baseline, review,
@@ -104,9 +112,10 @@ export function finishConversation(state: ConversationState, model: Conversation
       : state.items.some((item) => item.choice === 'unresolved') ? 'Happy to help! Let\'s make sure we have just the right items. Which of these should we include?'
         : state.questions.length ? 'Thanks, we\'re making progress! A few details below will help me finish your estimate.'
           : 'Thanks for the details! The team needs to review the scope issues below before I can prepare an estimate.',
-    reasons: [...reasons, ...(exceptional ? ['Heavy materials or special services require staff review. This volume baseline is not an all-inclusive quote; no special-service charges have been invented.'] : []),
+    reasons: [...reasons, ...handlingReview, ...(exceptional ? ['Heavy materials or special services require staff review. This volume baseline is not an all-inclusive quote; no special-service charges have been invented.'] : []),
       'Location and access have not been priced. No distance tier, minimum, or access charge is assumed.',
       'Provisional estimate only. Staff must review scope, access, disposal and any applicable minimum before quoting.',
       ...(state.answers.some((answer) => answer.notSure) ? ['An answer remains unknown; staff review is required.'] : [])],
-    assumptions: baseline ? model.analysis.assumptions.map(safeModelText) : [] };
+    assumptions: baseline ? [...volume.assumptions, 'Loaded group volumes are visual estimates, not measurements. Each included group is counted once; no additional compaction factor is applied.',
+      ...model.analysis.assumptions.map(safeModelText)] : [] };
 }

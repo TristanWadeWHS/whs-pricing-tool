@@ -96,6 +96,10 @@ export default function Conversation() {
   }
   const pending = result?.items.filter((item) => item.choice === 'unresolved') ?? [];
   const completed = !busy && !error && !pending.length && !result?.questions.length && !!result?.baseline;
+  const load = result?.baseline;
+  const loadSummary = load?.range
+    ? `Model-estimated ${load.range[0]}-${load.range[1]}% · ${Number((load.range[0] / 100 * 12).toFixed(4))}-${Number((load.range[1] / 100 * 12).toFixed(4))} cubic yards · ${load.range[0] / 100}-${load.range[1] / 100} trailer equivalents`
+    : load ? `Model-estimated ${load.percent}% · ${load.cubicYards} cubic yards · ${load.equivalents} trailer equivalents` : '';
   function scopeEditor() {
     return <fieldset disabled={busy || optimizing} className={styles.scope}>
       {result?.items.map((item) => <div className={styles.scopeItem} key={item.id}>
@@ -119,7 +123,7 @@ export default function Conversation() {
       </article>)}
       {busy && <p className={styles.busy} role="status">Thanks! I&apos;m reviewing your photos and scope. We&apos;re working on your estimate<span aria-hidden="true">...</span></p>}
       {!busy && result && <section className={styles.result} aria-label="Current scope and estimate">
-        {completed && result.baseline && <div className={styles.baseline}><small>PROVISIONAL VOLUME BASELINE</small><h2>{result.baseline.display}</h2><p>AI-estimated {result.baseline.percent}% · {result.baseline.cubicYards} cubic yards · {result.baseline.equivalents} trailer equivalents</p><p>No location minimum or access charge applied. Not a final quote.</p></div>}
+        {completed && result.baseline && <div className={styles.baseline}><small>PROVISIONAL VOLUME BASELINE</small><h2>{result.baseline.display}</h2><p>{loadSummary}</p><p>No location minimum or access charge applied. Not a final quote.</p></div>}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>
           {result.questions.map((q) => <div className={styles.question} key={q.id}><label htmlFor={q.id}>{q.text}</label><small>Photo {q.photoRef}: {q.evidence}</small>
