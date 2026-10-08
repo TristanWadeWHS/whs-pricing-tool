@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SERVICE_CHOICES, type Choice, type ConversationResult } from './lib/conversation-schema';
 import { optimizePhotoSelection } from './lib/photo-optimizer';
 import styles from './conversation.module.css';
+import BookingFollowUp from './booking-follow-up';
 
 type Photo = { file: File; room: string; url: string; hash: string };
 type Message = { role: 'user' | 'winston'; text: string; photos?: number; room?: string };
@@ -127,6 +128,7 @@ export default function Conversation() {
           </div>)}<button type="submit">Send answers</button></fieldset></form>}
         {!!result.reasons.length && <details open={!result.baseline}><summary>Review status &amp; next steps</summary><ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></details>}
         {completed && !!result.assumptions.length && <details><summary>Assumptions &amp; volume calculation</summary><ul>{result.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul><p>Loaded percentage / 100 × $550. A supported volume interval uses both endpoints. This is not a statistical prediction interval.</p></details>}
+        {completed && <BookingFollowUp key={result.token} token={result.token} scope={result.items.filter((i) => i.choice === 'included').map((i) => i.label)} onMessage={(role, text) => setMessages((old) => [...old, { role, text }])} />}
       </section>}
       {error && <div role="alert" className={styles.error}><p>{error}</p><button type="button" disabled={busy || optimizing} onClick={() => retry.current && void transmit(retry.current)}>Retry last message</button></div>}
     </div>
