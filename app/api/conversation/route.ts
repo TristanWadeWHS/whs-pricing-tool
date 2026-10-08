@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     state.messages.push({ text: data.message, room: data.room }); state.turn++;
     state.services = data.services; state.photoHashes = photos.map((p) => p.hash); state.photoRooms = data.photoRooms;
     if (!photos.length) return reply({ token: signConversation(state), items: [], questions: [], baseline: null, review: true, assumptions: [], reasons: [],
-      message: `I can help with ${data.services.map((s) => SERVICE_CHOICES.find(([v]) => v === s)![1]).join(' and ') || 'your removal'}. What items should we remove? Add photos whenever you're ready. You can send each room separately.` });
+      message: `Happy to help with ${data.services.map((s) => SERVICE_CHOICES.find(([v]) => v === s)![1]).join(' and ') || 'your removal'}! Let's make some space. Tell me what needs to go and add photos whenever you're ready. We can take it one room at a time!` });
     if (!process.env.OPENAI_API_KEY) return reply({ error: 'Photo analysis is not configured. Your entries are retained; staff review is available.', baseline: null }, 503);
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0, timeout: OPENAI_ANALYSIS_TIMEOUT_MS });
     const response = await client.responses.parse({ model: getConfiguredOpenAIModel(), store: false, reasoning: { effort: 'low' },
