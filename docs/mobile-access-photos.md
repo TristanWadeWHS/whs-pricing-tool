@@ -1,0 +1,294 @@
+# Mobile access and Photo Library candidate
+
+## Actual-batch aggregate photo budgeting
+
+Baseline 8a9cc41dc362b0e2a67fe0f815189c385ba8900c is preserved by annotated
+`pre-batch-budget-snapshot-8a9cc41` and retained Preview dpl_FuGVLoTUnhjqQZGhMffgvjJ3vs35
+(https://whs-pricing-tool-p8kg-3p5g9ie2q-wade-home-services.vercel.app).
+
+Confirmed root cause: the conversation passed a fixed reservedSlots=10 even for
+six new photos. The resulting 367,001-byte equal share was enforced per image,
+rejecting the reported 406,947-byte output despite an otherwise fitting batch.
+
+The conversation now supplies the actual retained count and sum of retained file
+bytes. Remaining allowance is 3,670,016 minus retained bytes; the first compression
+target is remaining bytes divided by NEW batch count, capped at the unchanged
+server per-image limit. An image that cannot reach that target may contribute its
+smallest supported output instead. The aggregate decides acceptance, not an
+arbitrary equal share. If the combined new outputs exceed the remaining allowance,
+a bounded second pass chooses each new image's smallest supported output. If that
+still cannot fit, the whole new batch fails with a clear smaller-batch message.
+Retained files are never recompressed/reordered: signed photo hashes stay valid.
+No byte limits, supported formats, dimension/quality floors or server rules changed.
+
+Regression: six 406,947-byte outputs total 2,441,682 bytes and are accepted. The
+initial six-image target with no retained files is 611,669 bytes, not 367,001.
+Focused tests also cover unequal sizes, second-pass redistribution, retained-byte
+accounting, ten photos across batches, genuinely excessive totals and smaller retries.
+Typecheck passes. Real mobile-emulated browser decoding/canvas/FormData and local
+server validation passed with six synthetic JPEGs totaling 3,464,562 bytes, then
+ten photos totaling 3,479,003 bytes. An intervening oversized follow-up batch and
+retry failed without losing the original six; their bytes and order were compared
+in memory and remained identical. Invalid JPEG recovery and the eleventh-photo
+guard passed. The server's expected 503 with AI disabled occurs AFTER validation;
+this is upload verification, not an AI analysis claim. No live external calls or
+customer fixtures. Native iPhone Safari remains a manual gate.
+
+Manual check: choose the same six iPhone photos and confirm six are ready; submit
+normally when ready to analyze. Add another batch within the ten-photo total.
+A genuine capacity error must leave the conversation and earlier photos intact.
+Use the retained baseline Preview above for rollback testing, without moving refs.
+PR #19 remains draft. Production stays 90ae1c249069a9f5ff05018c48271403dfad33b2 /
+dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H. No merge, promotion, pricing, auth or environment changes.
+
+## Focused conversation scrolling and loading UI
+
+Baseline bf4a3a2d28e39be11e0c6e8d8b5d8a13d1a85dce is preserved by annotated
+`pre-conversation-ui-snapshot-bf4a3a2` and Preview dpl_Fq3YcZDVcZwSGyJxNwdV3cwz7yrC
+(https://whs-pricing-tool-p8kg-cnn5jtu9z-wade-home-services.vercel.app).
+Continue draft PR #19 on codex/mobile-access-photos, still based on PR #18.
+
+Removed the effect that scrolled to the bottom on messages, results and busy
+changes. Start/reset scrolls the conversation container to zero. Each new Winston
+message anchors once at its first line, with trailing space for short responses.
+Wheel/touch/scrollbar/keyboard navigation during a request suppresses that anchor;
+browser focus-induced scroll events do not masquerade as user navigation. The
+page is not scrolled. While the old result is hidden during processing, a same-size
+empty placeholder avoids collapsing the reading position. Reset focus prevents
+scrolling. Existing message, upload, pricing and failure-handling logic remains.
+
+A fixed-height composer status row shows visible preparation text and three dots,
+highlighted left-to-right, only while the conversation request is busy. It has a
+polite atomic status announcement; decorative dots are hidden from assistive
+technology and animation is disabled under prefers-reduced-motion. There are no
+partial prices in this status. Retry starts a fresh indicator; completion, failure
+and reset remove it, and stale responses cannot restore it.
+
+Verification: 28 affected conversation tests and typecheck passed. The focused
+tests/conversation-scroll.browser.mjs passes in desktop and mobile-emulated
+Chromium with mocked responses: initial/reset position, long and short response
+anchors, no request-start/bottom jump, manual scroll preservation, no typing jump,
+dot order, reduced motion, no price while pending, error/retry/reset lifecycle and
+stale-response rejection. Synthetic screenshots were inspected. No native Safari
+or live AI/Maps/Sheets calls. Production remains 90ae1c249069a9f5ff05018c48271403dfad33b2
+/ dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H, https://whs-pricing-tool-p8kg.vercel.app.
+No upload optimizer, auth, API, pricing, booking, dependencies or environment changes.
+
+Manual Preview check: start a conversation, send a message, verify the three dots
+without a viewport jump, then read the reply from its beginning. Scroll upward
+while another reply is pending and confirm the view stays where you left it.
+Start Over must clear the indicator/history and return to the top. The prior
+Preview above is the rollback test URL; do not move refs or promote Production.
+
+## Confirmed budget failure and skipped compression floor
+
+The subsequent iPhone screenshot resolves the earlier diagnostic blocker:
+`processed-budget`, JPEG, original 3,807,149 bytes, decoded 3024 x 4032 via
+ImageBitmap, smallest output 431,120 bytes against the unchanged 367,001-byte
+ten-slot budget. Selection, decoding and encoding succeeded. Failure occurred
+locally before conversation insertion or upload; this is not evidence of HEIC,
+iCloud, authentication or server rejection.
+
+Code inspection found that the dimension sequence stopped at 1479 pixels:
+2048 -> 1740 -> 1479 -> 1257, with 1257 below the configured 1280 minimum.
+It therefore skipped the entire permitted 1280-pixel compression pass. The fix
+clamps the last step to the existing minimum and explicitly terminates there.
+No byte limits, 0.68 quality floor, 1280 dimension floor, decoder, authentication,
+pricing, request construction or server validation changed. Prior snapshot:
+`pre-photo-floor-snapshot-d8c0708` at d8c0708c218240e9738cd708d9db9491d4fc1423;
+retained Preview dpl_7Xm2Ya4qeDVUMT2s2DZxD1nR7Pgy.
+
+Validation: 23 optimizer tests pass, including exact floor termination, portrait/
+landscape/small inputs, a synthetic budget regression and ten photos in three
+batches. Typecheck passes. Real mobile-emulated Chromium decoding, canvas JPEG
+encoding, FormData and unchanged local server validation accepted a deterministic
+high-detail synthetic 3024 x 4032 JPEG at 960 x 1280 and 335,363 bytes. The server
+returned the expected provider-disabled 503 AFTER file validation, without an AI
+call. An initial full-amplitude random-noise fixture did not fit; reducing only
+fixture contrast exercised the successful final pass. Limits were not relaxed to
+make either test succeed. No real photo or screenshot was committed.
+
+The new browser assertion requires the successful synthetic output to reach the
+exact 1280 floor, so the previous implementation cannot pass that check. Native
+iPhone Safari and its picker remain unavailable. The user's actual photo may
+still exceed the budget at the final pass; no claim of real-device recovery is
+made until Tristan retries. On the updated Preview choose the same Photo Library
+image and confirm `1/10 photos ready` and an upright thumbnail. If it fails,
+share only the `Photo check:` line; no Send/AI call is needed for this check.
+
+Production remains at 90ae1c249069a9f5ff05018c48271403dfad33b2 / deployment
+dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H. PR #19 stays draft; no merge or promotion.
+
+## Follow-up: iPhone optimization failure diagnosis
+
+The user confirmed login is fixed but reported exactly the generic optimization
+failure message. At SHA `6a75017335b6ec481cf254226b011002a8fef7a4`, that message
+originates in the browser optimizer, before successful files enter conversation
+state and before multipart submission. It is shared by original-file rejection,
+non-HEIC decode failure, missing/invalid decoded dimensions, encoder exceptions,
+empty canvas output and processed-byte-budget exhaustion. It does NOT establish
+which of those conditions happened on the iPhone. MIME/format, iCloud availability
+and Safari behavior remain unproven; no size or format diagnosis is assumed.
+
+That version is preserved by annotated tag `pre-photo-diagnostics-snapshot-6a75017`
+and its retained Preview `dpl_EthDyHEfTBDrio8h1spCBGFvjBiN` at
+https://whs-pricing-tool-p8kg-9l5fzdtgw-wade-home-services.vercel.app.
+Work continues on the same PR #19 branch. The focused correction is diagnostic:
+retain the optimizer failure stage and show an allowlisted technical `Photo check`
+line, rather than throwing away all distinctions. It includes MIME/extension,
+original bytes, decoded dimensions, smallest encoded output size when available,
+unchanged per-photo budget, decoder path and sanitized exception category.
+No filename, raw exception message, EXIF, photos, credentials or customer text is
+included. Nothing is logged or sent as telemetry. Zero-length input/output is now
+explicitly rejected instead of passing an empty encoded blob downstream. No
+decoding algorithm, size limit, auth or server-validation rule has been relaxed.
+
+Evidence: the supplied desktop JPEG copy was 1,377,299 bytes, 1200 x 1600,
+orientation 1. The real browser optimizer produced a 339,161-byte JPEG under the
+same ten-slot budget. This proves only the available desktop copy works, not that
+the Photo Library delivers identical encoded bytes. The original stayed outside
+the worktree; no real-photo copy, screenshot, fixture or binary was saved to Git.
+
+`tests/mobile-photo-receipt.browser.mjs` uses the actual browser FormData and the
+unmodified Next `/api/conversation` handler. Unlike the earlier endpoint-mocked
+smoke, the local server parses the multipart stream, enforces bytes/MIME/signature,
+hashes files, checks room/order/state and only then returns its existing 503
+`Photo analysis is not configured` response because OPENAI_API_KEY is explicitly
+empty. This response is intentional proof of receipt/validation, NOT a successful
+analysis claim. These are fresh-state requests: the empty key also disables
+conversation signing, so this smoke does not verify signed continuation.
+One synthetic image (19,192 bytes processed), then that image plus
+the desktop copy (358,353 bytes total), both reached that gate. A corrupt JPEG
+produced a local `decode` diagnostic while retaining the earlier successful file.
+No live provider call, endpoint interception, Preview debug route or auth bypass
+is involved. Native Safari and its Photo Library picker remain unavailable.
+
+Validation: 21 affected optimizer tests and typecheck pass. The real-route mobile
+emulation passed. Retained request/selection budgets, ten-photo/multi-batch behavior,
+login fix, analysis, pricing, booking and Production are unchanged. Recent Vercel
+runtime-log counts were empty; older logs exceeded the one-hour retention. These
+logs cannot identify a browser-only failure.
+
+One required iPhone step: on the updated PR #19 Preview, select the same failing
+Photo Library image once and send only the `Photo check:` line displayed below
+the error. No Send/AI call is needed. That evidence is still required to choose
+the underlying repair; this diagnostic candidate does not claim the reported
+iPhone upload failure has been fixed.
+
+## Preserved baseline
+
+- Starting branch: `codex/ordinary-job-volume`, PR #18 (draft, based on PR #17).
+- Candidate: `7ccb58db97809686f1381bb97c1172d2dba6b421`.
+- Annotated snapshot: `pre-mobile-fix-snapshot-7ccb58d`.
+- Prior Preview: `dpl_2qrbhugGLdvDaoDoJ38YFFAP8jEz`,
+  https://whs-pricing-tool-p8kg-g5omj5at1-wade-home-services.vercel.app.
+- Main and Production: `90ae1c249069a9f5ff05018c48271403dfad33b2`.
+- Production deployment: `dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H`,
+  https://whs-pricing-tool-p8kg.vercel.app.
+- Work is isolated on `codex/mobile-access-photos`, stacked on PR #18.
+  No merge, environment change, promotion or Production deployment is authorized.
+
+## Evidence and changes
+
+The prior Preview's unauthenticated HTTP request returned a 302 to Vercel SSO,
+with `no-store` and a Secure/HttpOnly/SameSite=Lax SSO nonce cookie. Project
+metadata confirms Vercel authentication is enabled. No protection setting was
+changed and no bypass was created. Behind that layer, the application's proxy
+previously demanded Basic/header credentials on every protected request,
+including APIs, and never issued a session cookie. Those application responses
+were reproduced locally with synthetic credentials. We cannot establish which
+layer caused every prompt in the reported iPhone session without device evidence.
+
+After the existing successful login, the proxy now issues a host-only
+`__Host-whs-internal-session` cookie: Secure, HttpOnly, SameSite=Lax, Path=/,
+eight-hour maximum lifetime. It contains only expiry, nonce and a domain-separated
+HMAC, signed using the existing server-only access secret, not the secret itself.
+Signatures, expiry and host binding are checked on every request. Secret rotation
+invalidates old sessions; cookies do not extend themselves on ordinary requests.
+Existing token and Basic access remain supported. Cookie-authenticated mutations
+require the same Origin and reject cross-site requests. No forwarded-host trust
+is added. Missing configuration still fails closed; URL tokens remain rejected.
+Background API failures return a no-store JSON 401 without a Basic challenge, so
+they cannot spawn another native login prompt. Page navigation still challenges.
+Users can sign in in another same-host tab, then retry without losing this tab's
+unsent conversation. Vercel SSO is independent and may still require its own login.
+Session cookies are not shared across different Preview hostnames or private tabs.
+
+Photo controls were already multi-select and had no capture-only attribute. They
+now include explicit HEIC/HEIF/JPEG filename extensions as well as MIME types.
+Known extensions are accepted when the library supplies an empty/generic MIME;
+actual decoding and server JPEG validation still apply. Browser decoding first
+tries orientation-aware ImageBitmap, then the native image element even when
+ImageBitmap exists but rejects the format. Only if both fail for HEIC/HEIF does
+the client lazily load pinned `heic-to@1.6.5` (libheif 1.23.5, CSP build).
+The local decoder applies HEIF transforms; its PNG result is optimized to JPEG
+without another rotation or recompression of previous batches. No conversion
+service receives images. Small exports retain native dimensions instead of
+failing the old 1280-pixel target loop. Encoding failures and bad HEIC files return
+recoverable messages. Processing is sequential and canvas/bitmap resources are
+released. Existing per-file and 3.5 MiB processed-total budgets, ten-photo limit,
+multipart/server validation and analysis input rules are unchanged.
+
+Decoder source/version and upstream documentation:
+https://github.com/hoppergee/heic-to and
+https://registry.npmjs.org/heic-to/-/heic-to-1.6.5.tgz.
+The unmodified decoder is LGPL-3.0; its license is retained at
+`public/heic-to.LICENSE.txt`. No upstream decoder code was modified.
+
+## Verification and limitations
+
+- 32 focused proxy/session and photo optimizer tests passed.
+- 50 affected conversation, booking and historical-reference tests passed;
+  providers/Sheets mocked, historical matching and booking behavior unchanged.
+- Typecheck passed. Diff whitespace checks passed.
+- Chromium mobile emulation passed: login followed by a new browser context with
+  only the issued cookie, page reload, protected API validation (400 before model
+  use), invalid/missing credentials (401), no API Basic challenge, no-store errors,
+  ten images across four batches, total request budget, recoverable corrupt HEIC,
+  and real JPEG/HEVC decoding/orientation from generated color quadrants.
+- Both converted files were checked for portrait dimensions, correctly rotated
+  corner pixels and stripped orientation metadata. Fixtures are generated only
+  in memory with a temporary test-only Pillow/HEIF encoder; no photos are committed.
+- Next dev overrides HTML caching to `no-cache, must-revalidate`; proxy no-store
+  and unauthorized API no-store were verified separately. Production is unchanged.
+- No live OpenAI, Maps, Sheets, calendar, SMS or email calls. No secrets or customer
+  images were read for verification, logged, included in fixtures or committed.
+- No iPhone or installed WebKit executable was available. Native Safari Basic/SSO
+  prompts, Photo Library picker, iCloud download behavior and device memory limits
+  require Tristan's manual check. This is not a claim that every HEIF variant or
+  EXIF-only malformed container is supported. Large originals retain existing limits.
+- Dependency audit reports six existing affected packages (one critical, three
+  high, two moderate), including Next.js 16.3.1 and sharp. No advisory was reported
+  for the sole added package, heic-to. No existing package versions changed.
+  Critical Next.js advisories include GHSA-p293-qw3h-jr36, GHSA-2xp9-vwfh-vxw4
+  and GHSA-vcvr-r3jv-pc5j. These unresolved advisories require a separately scoped
+  security update before a Production release; this candidate stays draft.
+
+## Manual iPhone Preview check
+
+1. Open the new exact Preview URL directly in a normal Safari tab, not an embedded
+   browser. Complete Vercel sign-in if requested, then the existing WHS login.
+   Never enter an access token in the URL. Keep using the same Preview hostname.
+2. Reload and navigate within that host. Return after briefly switching apps.
+   WHS should not repeatedly prompt within the eight-hour session. If it does,
+   report whether it is a Vercel sign-in page or Safari's WHS Basic login dialog;
+   do not send credentials or cookie values.
+3. Tap + Photos and choose Photo Library. Pick a portrait HEIC and a JPEG whose
+   orientation is obvious. Confirm previews are upright and both reach photos-ready.
+   Add another batch up to ten total; existing photos should stay attached.
+4. Try a damaged/unsupported file and then a valid replacement. The error should
+   be recoverable, and earlier successful photos must remain. An eleventh photo
+   should be rejected clearly. Large photos must not raise the upload budget.
+5. The automated check submits only to a mock conversation endpoint. A real
+   Preview Send invokes the existing AI provider; no live provider verification
+   was performed in this change. Any real estimate check is a separate manual action.
+
+To reproduce the local smoke test, start Next dev on loopback port 3017 with
+`INTERNAL_ACCESS_TOKEN=synthetic-mobile-test` and a synthetic OpenAI key, then run
+`node tests/mobile-access-photos.browser.mjs`. Supply PLAYWRIGHT_MODULE if not on
+the module path, and HEIF_PYTHON/PYTHONPATH for a temporary pillow-heif 1.1.1 test
+encoder. Never use live credentials for this test or target a remote host.
+
+Rollback for this Preview is the preserved prior Preview URL/deployment above.
+Do not move refs or promote anything to Production. Existing branches, tags,
+commits, PRs, deployments and the tested version remain recoverable.

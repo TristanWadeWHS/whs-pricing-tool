@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SERVICE_CHOICES, type Choice, type ConversationResult } from './lib/conversation-schema';
-import { optimizePhotoSelection } from './lib/photo-optimizer';
+import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT, photoFailureMessage } from './lib/photo-optimizer';
 import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
 
@@ -25,8 +25,22 @@ export default function Conversation() {
   const generation = useRef(0); const locked = useRef(false); const photoLock = useRef(false);
   const controller = useRef<AbortController | null>(null); const retry = useRef<FormData | null>(null);
   const log = useRef<HTMLDivElement>(null); const composer = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: 'instant' }); }, [messages, result, busy]);
+  const responseStart = useRef<HTMLElement>(null); const scrollSpace = useRef<HTMLDivElement>(null);
+  const resultSection = useRef<HTMLElement>(null); const resultHeight = useRef(0);
+  const scrolledDuringRequest = useRef(false);
+  useLayoutEffect(() => {
+    const container = log.current, space = scrollSpace.current;
+    if (!container || !space) return;
+    if (!messages.length) { space.style.height = '0px'; container.scrollTop = 0; return; }
+    if (messages.at(-1)?.role !== 'winston' || scrolledDuringRequest.current || !responseStart.current) return;
+    const top = container.scrollTop + responseStart.current.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+    // Enough trailing room to anchor even a short reply, without scrolling the page.
+    space.style.height = `${Math.max(0, top + container.clientHeight - (container.scrollHeight - space.offsetHeight))}px`;
+    container.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
+  }, [messages]);
   useEffect(() => () => { generation.current++; controller.current?.abort(); photoRef.current.forEach((p) => URL.revokeObjectURL(p.url)); }, []);
+
+  function preserveReadingPosition() { if (locked.current) scrolledDuringRequest.current = true; }
 
   function startOver() {
     generation.current++; controller.current?.abort(); locked.current = false; photoLock.current = false;
@@ -34,7 +48,8 @@ export default function Conversation() {
     token.current = ''; sentPhotos.current = 0; retry.current = null;
     setMessages([]); setText(''); setServices([]); setRoom(''); setPhotos([]); setResult(null);
     setChoices({}); setAnswers({}); setReplyTo(''); setBusy(false); setOptimizing(false); setUploadStatus(''); setFailedPhotos([]); setError('');
-    composer.current?.focus();
+    scrolledDuringRequest.current = false;
+    composer.current?.focus({ preventScroll: true });
   }
   async function addPhotos(files: File[]) {
     if (!files.length || locked.current || photoLock.current) return;
@@ -42,9 +57,12 @@ export default function Conversation() {
     photoLock.current = true; setOptimizing(true); setFailedPhotos([]); setUploadStatus(`Preparing ${files.length} photo${files.length === 1 ? '' : 's'}...`);
     const run = generation.current, batchRoom = room.trim() || 'General';
     try {
-    const optimized = await optimizePhotoSelection(files, undefined, 10);
+    const optimized = await optimizePhotoSelection(files, undefined, {
+      count: photoRef.current.length,
+      bytes: photoRef.current.reduce((total, photo) => total + photo.file.size, 0)
+    });
     if (run !== generation.current) return;
-    if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(optimized.error); }
+    if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(photoFailureMessage(optimized)); }
     else {
       const added: Photo[] = []; const hashes = new Set(photoRef.current.map((p) => p.hash));
       for (const photo of optimized.photos) {
@@ -61,6 +79,8 @@ export default function Conversation() {
   }
   async function transmit(form: FormData) {
     if (locked.current || photoLock.current) return;
+    scrolledDuringRequest.current = false;
+    resultHeight.current = resultSection.current?.offsetHeight ?? 0;
     locked.current = true; setBusy(true); setError(''); retry.current = form;
     setResult((old) => old ? { ...old, baseline: null } : null);
     const run = generation.current; const abort = new AbortController(); controller.current = abort;
@@ -114,15 +134,18 @@ export default function Conversation() {
   return <main className={styles.shell}>
     <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><img src="/winston-logo.png" alt="Winston" width="46" height="46" /><span>Wade Home Services<small>Removal estimates with Winston</small></span></a><button type="button" onClick={startOver}>Start Over</button></header>
     <div className={styles.pilot}>Protected Preview · Provisional estimates, reviewed by your team</div>
-    <div ref={log} className={styles.log} role="log" aria-label="Conversation with Winston" aria-live="polite" aria-relevant="additions">
+    <div ref={log} className={styles.log} role="log" aria-label="Conversation with Winston" aria-live="polite" aria-relevant="additions" tabIndex={0}
+      onWheel={preserveReadingPosition} onTouchMove={preserveReadingPosition}
+      onPointerDown={(e) => { if (e.target === e.currentTarget) preserveReadingPosition(); }}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) preserveReadingPosition(); }}>
       <section className={styles.welcome}><img src="/winston-logo.png" width="116" height="116" alt="Winston, your removal guide" /><p className={styles.eyebrow}>A little less clutter. A little more room.</p><h1>Let&apos;s make some space.</h1><p>{opening}</p></section>
       <div className={styles.services} aria-label="Services">{SERVICE_CHOICES.map(([value, label]) => <button type="button" key={value} aria-pressed={services.includes(value)} disabled={busy || optimizing || services.includes(value)} onClick={() => send('service', [value, label])}>{label}</button>)}</div>
-      {messages.map((message, i) => <article key={i} className={message.role === 'user' ? styles.user : styles.winston}>
+      {messages.map((message, i) => <article key={i} ref={message.role === 'winston' && i === messages.length - 1 ? responseStart : undefined} data-speaker={message.role} className={message.role === 'user' ? styles.user : styles.winston}>
         <small>{message.role === 'user' ? 'You' : 'Winston'}</small><p>{message.text}</p>
         {!!message.photos && <small>{message.photos} photo{message.photos === 1 ? '' : 's'} · {message.room}</small>}
       </article>)}
-      {busy && <p className={styles.busy} role="status">Thanks! I&apos;m reviewing your photos and scope. We&apos;re working on your estimate<span aria-hidden="true">...</span></p>}
-      {!busy && result && <section className={styles.result} aria-label="Current scope and estimate">
+      {busy && <div aria-hidden="true" style={{ height: resultHeight.current }} />}
+      {!busy && result && <section ref={resultSection} className={styles.result} aria-label="Current scope and estimate">
         {completed && result.baseline && <div className={styles.baseline}><small>PROVISIONAL VOLUME BASELINE</small><h2>{result.baseline.display}</h2><p>{loadSummary}</p><p>No location minimum or access charge applied. Not a final quote.</p></div>}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>
@@ -135,12 +158,16 @@ export default function Conversation() {
         {completed && <BookingFollowUp key={result.token} token={result.token} scope={result.items.filter((i) => i.choice === 'included').map((i) => i.label)} onMessage={(role, text) => setMessages((old) => [...old, { role, text }])} />}
       </section>}
       {error && <div role="alert" className={styles.error}><p>{error}</p><button type="button" disabled={busy || optimizing} onClick={() => retry.current && void transmit(retry.current)}>Retry last message</button></div>}
+      <div ref={scrollSpace} aria-hidden="true" />
     </div>
     <footer className={styles.composer}>
+      <div className={styles.statusSlot} role="status" aria-live="polite" aria-atomic="true">
+        {busy && <div className={styles.busy}><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span><span>Winston is preparing your response...</span></div>}
+      </div>
       {!!photos.length && <details><summary>{photos.length}/10 photos in this conversation</summary><div className={styles.photos}>{photos.map((p, i) => <figure key={p.hash}><img src={p.url} alt={`Photo ${i + 1}, ${p.room}`} width="68" height="68" /><figcaption>{i + 1} · {p.room}</figcaption></figure>)}</div></details>}
       {replyTo && <div className={styles.reply}><span>Replying to: {result?.questions.find((q) => q.id === replyTo)?.text}</span><button type="button" disabled={busy} onClick={() => setReplyTo('')}>New topic</button></div>}
       <form onSubmit={(e) => { e.preventDefault(); send(); }}><label className={styles.srOnly} htmlFor="message">Message Winston</label><textarea ref={composer} id="message" maxLength={replyTo ? 400 : 1000} disabled={busy} placeholder={replyTo ? 'Your answer, or "Not sure"...' : 'Tell Winston what needs to go...'} value={text} onChange={(e) => setText(e.target.value)} />
-        <div className={styles.tools}><label className={styles.attach} title="Attach photos">+ Photos<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={busy || optimizing} onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void addPhotos(files); }} /></label>
+        <div className={styles.tools}><label className={styles.attach} title="Choose photos from your library">+ Photos<input type="file" aria-label="Choose photos from your library" accept={PHOTO_INPUT_ACCEPT} multiple disabled={busy || optimizing} onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void addPhotos(files); }} /></label>
           <label className={styles.room}>Room / batch<input aria-label="Room or photo batch" maxLength={60} value={room} placeholder="e.g. Garage" disabled={busy || optimizing} onChange={(e) => setRoom(e.target.value)} /></label>
           <button type="submit" aria-label="Send message" disabled={busy || optimizing || (!text.trim() && photos.length === sentPhotos.current)}>Send <span aria-hidden="true">↑</span></button></div>
       </form>

@@ -1,5 +1,4 @@
 import {
-  IMAGE_TOO_LARGE_MESSAGE,
   MAX_ESTIMATE_IMAGE_BYTES,
   MAX_ESTIMATE_PHOTOS,
   SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES
@@ -9,8 +8,11 @@ export const OPTIMIZATION_MESSAGES = {
   optimizing: 'Optimizing photos for analysis...',
   ready: 'Photos optimized and ready.',
   failed: "We couldn't optimize one or more photos. Please try fewer photos or choose another image.",
-  unsupportedHeic: 'This HEIC photo could not be processed in this browser. Please change your iPhone Camera Format to Most Compatible or upload a JPEG.'
+  batchTooLarge: 'These photos cannot fit in the remaining upload allowance after optimization. Try fewer photos or a smaller batch. Your conversation and already selected photos are retained.',
+  unsupportedHeic: 'This HEIC/HEIF photo could not be prepared. Your other photos are retained. Retry after the original finishes downloading from iCloud, or choose a JPEG copy.'
 };
+
+export const PHOTO_INPUT_ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
 
 export const PHOTO_OPTIMIZATION_LIMITS = {
   maxPhotos: MAX_ESTIMATE_PHOTOS,
@@ -35,6 +37,12 @@ const SUPPORTED_INPUT_TYPES = new Set([
 
 const HEIC_TYPES = new Set(['image/heic', 'image/heif']);
 
+function inputType(file: File) {
+  if (file.type && file.type !== 'application/octet-stream') return file.type.toLowerCase();
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' } as Record<string, string>)[extension ?? ''] ?? '';
+}
+
 export type OptimizedPhoto = {
   originalName: string;
   file: File;
@@ -48,50 +56,85 @@ export type OptimizedPhoto = {
 
 export type OptimizeSelectionResult =
   | { ok: true; photos: OptimizedPhoto[]; totalBytes: number; message: string }
-  | { ok: false; error: string };
+  | PhotoFailure;
+
+type FailureStage = 'input-empty' | 'input-byte-limit' | 'decode' | 'dimensions' | 'encode-exception' | 'encode-empty' | 'processed-budget';
+type PhotoFailure = { ok: false; error: string; diagnostic?: {
+  stage: FailureStage; mime: string; extension: string; originalBytes: number;
+  budgetBytes: number; width: number | null; height: number | null;
+  processedBytes: number | null; decoder: string; errorCategory: string;
+} };
+
+function photoFailure(file: File, stage: FailureStage, budgetBytes: number, decoded: DecodedImage | null = null,
+  processedBytes: number | null = null, error?: unknown): PhotoFailure {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  const name = error instanceof Error ? error.name : '';
+  return { ok: false, error: stage === 'decode' && HEIC_TYPES.has(inputType(file)) ? OPTIMIZATION_MESSAGES.unsupportedHeic : OPTIMIZATION_MESSAGES.failed,
+    diagnostic: { stage, mime: [...SUPPORTED_INPUT_TYPES, 'application/octet-stream'].includes(file.type) ? file.type : file.type ? 'other' : 'empty',
+      extension: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext) ? ext : 'other', originalBytes: file.size, budgetBytes,
+      width: decoded && Number.isFinite(decoded.width) ? decoded.width : null, height: decoded && Number.isFinite(decoded.height) ? decoded.height : null,
+      processedBytes, decoder: decoded?.decoder ?? 'unavailable',
+      errorCategory: ['EncodingError', 'InvalidStateError', 'NotReadableError', 'NotSupportedError', 'SecurityError', 'AbortError', 'TimeoutError'].includes(name) ? name : 'unavailable' } };
+}
+
+// Display only bounded technical metadata, never filenames, exception messages,
+// EXIF, photo bytes or credentials. It stays in this tab; no telemetry is sent.
+export function photoFailureMessage(result: PhotoFailure) {
+  const d = result.diagnostic;
+  if (!d) return result.error;
+  return `${result.error} Photo check: ${d.stage}; type ${d.mime}; extension ${d.extension}; original ${d.originalBytes} bytes; decoded ${d.width ?? '?'} x ${d.height ?? '?'}; processed ${d.processedBytes ?? '?'} bytes; budget ${d.budgetBytes} bytes; decoder ${d.decoder}; category ${d.errorCategory}. Not uploaded.`;
+}
 
 type DecodedImage = {
   width: number;
   height: number;
   source: CanvasImageSource;
   close?: () => void;
+  decoder?: 'bitmap' | 'image-element' | 'heic-fallback';
 };
 
 type OptimizePhotoFileResult =
   | { ok: true; photo: OptimizedPhoto }
-  | { ok: false; error: string };
+  | PhotoFailure;
 
 export type PhotoOptimizerAdapter = {
   decode(file: File): Promise<DecodedImage>;
   encode(image: DecodedImage, target: { width: number; height: number; quality: number }): Promise<Blob | null>;
 };
 
-export async function optimizePhotoSelection(files: File[], adapter = browserPhotoOptimizerAdapter, reservedSlots = files.length): Promise<OptimizeSelectionResult> {
+export async function optimizePhotoSelection(files: File[], adapter = browserPhotoOptimizerAdapter,
+  retained: { count: number; bytes: number } = { count: 0, bytes: 0 }): Promise<OptimizeSelectionResult> {
   if (files.length === 0) {
     return { ok: false, error: 'Upload at least one photo.' };
   }
 
-  if (files.length > PHOTO_OPTIMIZATION_LIMITS.maxPhotos) {
+  if (!Number.isInteger(retained.count) || retained.count < 0 || !Number.isSafeInteger(retained.bytes) || retained.bytes < 0 || retained.bytes > PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
+    return { ok: false, error: 'Invalid retained photo capacity.' };
+  }
+  if (files.length + retained.count > PHOTO_OPTIMIZATION_LIMITS.maxPhotos) {
     return { ok: false, error: `Upload no more than ${PHOTO_OPTIMIZATION_LIMITS.maxPhotos} photos.` };
   }
 
-  if (!Number.isInteger(reservedSlots) || reservedSlots < files.length || reservedSlots > MAX_ESTIMATE_PHOTOS) return { ok: false, error: 'Invalid photo capacity.' };
-  const initialBudget = getProcessedImageBudget(reservedSlots, reservedSlots === files.length);
+  const remainingBytes = PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes - retained.bytes;
+  if (!remainingBytes) return { ok: false, error: OPTIMIZATION_MESSAGES.batchTooLarge };
+  const initialBudget = getProcessedImageBudget(files.length, remainingBytes);
   const firstPass = await optimizeWithBudget(files, initialBudget, adapter);
   if (!firstPass.ok) return firstPass;
 
   const totalBytes = sumOptimizedBytes(firstPass.photos);
-  if (totalBytes <= PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
+  if (totalBytes <= remainingBytes) {
     return { ok: true, photos: firstPass.photos, totalBytes, message: buildReadyMessage(firstPass.photos) };
   }
 
-  const finalBudget = getProcessedImageBudget(reservedSlots, false);
-  const finalPass = await optimizeWithBudget(files, finalBudget, adapter);
+  // Shares are optimization targets, not hard caps. Only if their combined
+  // outputs exceed the remaining allowance, try each new file's smallest output.
+  // Retained files are never rewritten: their hashes may be in signed context.
+  const finalPass = await optimizeWithBudget(files, 0, adapter);
   if (!finalPass.ok) return finalPass;
 
   const finalTotalBytes = sumOptimizedBytes(finalPass.photos);
-  if (finalTotalBytes > PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
-    return { ok: false, error: IMAGE_TOO_LARGE_MESSAGE };
+  if (finalTotalBytes > remainingBytes) {
+    return { ok: false, error: OPTIMIZATION_MESSAGES.batchTooLarge };
   }
 
   return { ok: true, photos: finalPass.photos, totalBytes: finalTotalBytes, message: buildReadyMessage(finalPass.photos) };
@@ -112,19 +155,16 @@ export function buildAnalyzeFormWithOptimizedPhotos(formData: FormData, photos: 
   return nextFormData;
 }
 
-export function getProcessedImageBudget(fileCount: number, preserveSingleImageDetail = false) {
+export function getProcessedImageBudget(fileCount: number, remainingBytes = PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
   const count = Math.max(1, fileCount);
-  const totalBudget = PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes;
-  const fairShare = Math.floor(totalBudget / count);
-  const preferredShare = preserveSingleImageDetail ? Math.floor(fairShare * 1.15) : fairShare;
-  return Math.min(PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes, preferredShare);
+  return Math.min(PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes, Math.floor(remainingBytes / count));
 }
 
 async function optimizeWithBudget(files: File[], budgetBytes: number, adapter: PhotoOptimizerAdapter): Promise<OptimizeSelectionResult> {
   const photos = [];
   for (const file of files) {
     const optimized = await optimizePhotoFile(file, budgetBytes, adapter);
-    if (optimized.ok === false) return { ok: false, error: optimized.error };
+    if (optimized.ok === false) return optimized;
     photos.push(optimized.photo);
   }
 
@@ -132,58 +172,68 @@ async function optimizeWithBudget(files: File[], budgetBytes: number, adapter: P
 }
 
 async function optimizePhotoFile(file: File, budgetBytes: number, adapter: PhotoOptimizerAdapter): Promise<OptimizePhotoFileResult> {
-  if (!SUPPORTED_INPUT_TYPES.has(file.type)) {
-    return { ok: false as const, error: 'Photos must be JPEG, PNG, WebP, or browser-supported HEIC images.' };
+  if (!SUPPORTED_INPUT_TYPES.has(inputType(file))) {
+    return { ok: false as const, error: 'Photos must be JPEG, PNG, WebP, HEIC, or HEIF images.' };
   }
 
   if (file.size > PHOTO_OPTIMIZATION_LIMITS.maxOriginalBytes) {
-    return { ok: false as const, error: OPTIMIZATION_MESSAGES.failed };
+    return photoFailure(file, 'input-byte-limit', budgetBytes);
   }
+  if (!file.size) return photoFailure(file, 'input-empty', budgetBytes);
 
   let decoded: DecodedImage | null = null;
   try {
     decoded = await adapter.decode(file);
-  } catch {
-    return { ok: false as const, error: HEIC_TYPES.has(file.type) ? OPTIMIZATION_MESSAGES.unsupportedHeic : OPTIMIZATION_MESSAGES.failed };
+  } catch (error) {
+    return photoFailure(file, 'decode', budgetBytes, null, null, error);
   }
 
+  let smallestEncodedBytes: number | null = null;
+  let smallest: OptimizedPhoto | null = null;
   try {
-    for (const target of getOptimizationTargets(decoded.width, decoded.height)) {
+    const targets = getOptimizationTargets(decoded.width, decoded.height);
+    if (!targets.length) return photoFailure(file, 'dimensions', budgetBytes, decoded);
+    for (const target of targets) {
       const blob = await adapter.encode(decoded, target);
-      if (!blob) continue;
+      if (!blob || !blob.size) continue;
+      smallestEncodedBytes = Math.min(smallestEncodedBytes ?? blob.size, blob.size);
 
-      if (blob.size <= budgetBytes && blob.size <= PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes) {
+      if (blob.size <= PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes && (!smallest || blob.size < smallest.optimizedBytes)) {
         const outputName = replaceImageExtension(file.name);
-        return {
-          ok: true as const,
-          photo: {
-            originalName: file.name,
-            file: new File([blob], outputName, { type: 'image/jpeg', lastModified: Date.now() }),
-            originalBytes: file.size,
-            optimizedBytes: blob.size,
-            width: target.width,
-            height: target.height,
-            quality: target.quality,
-            additionalPasses: target.additionalPasses
-          }
+        smallest = {
+          originalName: file.name,
+          file: new File([blob], outputName, { type: 'image/jpeg', lastModified: Date.now() }),
+          originalBytes: file.size,
+          optimizedBytes: blob.size,
+          width: target.width,
+          height: target.height,
+          quality: target.quality,
+          additionalPasses: target.additionalPasses
         };
       }
+      if (smallest && smallest.optimizedBytes <= budgetBytes) return { ok: true, photo: smallest };
     }
+  } catch (error) {
+    return photoFailure(file, 'encode-exception', budgetBytes, decoded, smallestEncodedBytes, error);
   } finally {
     decoded.close?.();
   }
 
-  return { ok: false as const, error: OPTIMIZATION_MESSAGES.failed };
+  if (smallest) return { ok: true, photo: smallest };
+  return photoFailure(file, smallestEncodedBytes === null ? 'encode-empty' : 'processed-budget', PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes, decoded, smallestEncodedBytes);
 }
 
 export function getOptimizationTargets(width: number, height: number) {
   const longEdge = Math.max(width, height);
+  if (!Number.isFinite(longEdge) || width <= 0 || height <= 0) return [];
   const baseScale = Math.min(1, PHOTO_OPTIMIZATION_LIMITS.initialLongEdge / longEdge);
   const targets = [];
   let scaledLongEdge = Math.round(longEdge * baseScale);
   let additionalPasses = 0;
 
-  while (scaledLongEdge >= PHOTO_OPTIMIZATION_LIMITS.minimumLongEdge) {
+  // Small library exports should keep their native size, not fail or be upscaled.
+  const minimumLongEdge = Math.min(longEdge, PHOTO_OPTIMIZATION_LIMITS.minimumLongEdge);
+  while (scaledLongEdge >= minimumLongEdge) {
     const scale = scaledLongEdge / longEdge;
     const targetWidth = Math.max(1, Math.round(width * scale));
     const targetHeight = Math.max(1, Math.round(height * scale));
@@ -202,7 +252,9 @@ export function getOptimizationTargets(width: number, height: number) {
       additionalPasses += quality === PHOTO_OPTIMIZATION_LIMITS.initialQuality ? 0 : 1;
     }
 
-    scaledLongEdge = Math.floor(scaledLongEdge * PHOTO_OPTIMIZATION_LIMITS.dimensionStep);
+    // Always try the configured floor: a multiplicative step can skip over it.
+    if (scaledLongEdge === minimumLongEdge) break;
+    scaledLongEdge = Math.max(minimumLongEdge, Math.floor(scaledLongEdge * PHOTO_OPTIMIZATION_LIMITS.dimensionStep));
     additionalPasses += 1;
   }
 
@@ -225,22 +277,16 @@ function sumOptimizedBytes(photos: OptimizedPhoto[]) {
 
 export const browserPhotoOptimizerAdapter: PhotoOptimizerAdapter = {
   async decode(file) {
-    if ('createImageBitmap' in window) {
-      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      return {
-        width: bitmap.width,
-        height: bitmap.height,
-        source: bitmap,
-        close: () => bitmap.close()
-      };
+    try {
+      return await decodeNativePhoto(file);
+    } catch {
+      if (!HEIC_TYPES.has(inputType(file))) throw new Error('Image decode failed.');
     }
-
-    const image = await decodeWithImageElement(file);
-    return {
-      width: image.naturalWidth,
-      height: image.naturalHeight,
-      source: image
-    };
+    // Lazy, local-only libheif fallback. Its decoder applies HEIF transforms;
+    // PNG pixels contain that orientation already, so do not rotate again.
+    const { heicTo } = await import('heic-to/csp');
+    const converted = await heicTo({ blob: file, type: 'image/png' });
+    return { ...await decodeNativePhoto(converted), decoder: 'heic-fallback' };
   },
 
   async encode(image, target) {
@@ -253,20 +299,34 @@ export const browserPhotoOptimizerAdapter: PhotoOptimizerAdapter = {
 
     context.drawImage(image.source, 0, 0, target.width, target.height);
     return new Promise((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', target.quality);
+      canvas.toBlob((blob) => { canvas.width = 1; canvas.height = 1; resolve(blob); }, 'image/jpeg', target.quality);
     });
   }
 };
 
-function decodeWithImageElement(file: File) {
+async function decodeNativePhoto(file: Blob): Promise<DecodedImage> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      return { width: bitmap.width, height: bitmap.height, source: bitmap, close: () => bitmap.close(), decoder: 'bitmap' };
+    } catch { /* Safari may decode a library image through <img> but not ImageBitmap. */ }
+  }
+  const image = await decodeWithImageElement(file);
+  return { width: image.naturalWidth, height: image.naturalHeight, source: image, close: () => { image.src = ''; }, decoder: 'image-element' };
+}
+
+function decodeWithImageElement(file: Blob) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
+    const timeout = setTimeout(() => { URL.revokeObjectURL(url); image.src = ''; reject(new Error('Image decode timed out.')); }, 30_000);
     image.onload = () => {
+      clearTimeout(timeout);
       URL.revokeObjectURL(url);
       resolve(image);
     };
     image.onerror = () => {
+      clearTimeout(timeout);
       URL.revokeObjectURL(url);
       reject(new Error('Image decode failed.'));
     };

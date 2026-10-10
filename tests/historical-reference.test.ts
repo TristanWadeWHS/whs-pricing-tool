@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { currentReferenceScope, matchHistoricalReference, resolveHistoricalReference, type ReferenceScope } from '../app/lib/historical-reference';
 import { POST } from '../app/api/historical-reference/route';
+import { INTERNAL_SESSION_COOKIE, issueInternalSession } from '../app/lib/internal-session';
 vi.mock('../app/lib/historical-reference-source', () => ({ loadHistoricalReferences: vi.fn(() => { throw new Error('Unexpected live read'); }) }));
 
 const scope: ReferenceScope = { scopeGroup: 'synthetic-verified-group', loadUnit: 'synthetic-shared-unit',
@@ -54,8 +55,17 @@ describe('internal reference endpoint', () => {
     vi.stubEnv('INTERNAL_ACCESS_TOKEN', 'test-only');
     const result = await POST(request('{}', false, '?access_token=test-only'));
     expect(result.status).toBe(401);
-    expect(result.headers.get('www-authenticate')).toContain('Basic');
+    expect(result.headers.get('www-authenticate')).toBeNull();
     expect(result.headers.get('cache-control')).toBe('no-store');
+  });
+  it('accepts the protected mobile session without repeated Basic credentials', async () => {
+    vi.stubEnv('INTERNAL_ACCESS_TOKEN', 'test-only');
+    vi.stubEnv('VERCEL_ENV', 'preview');
+    const value = issueInternalSession('test-only', 'localhost');
+    const response = await POST(new NextRequest('http://localhost/api/historical-reference', { method: 'POST', body: '{"stairs":"none"}',
+      headers: { cookie: `${INTERNAL_SESSION_COOKIE}=${value}`, origin: 'http://localhost' } }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('abstained');
   });
   it('fails closed without auth configuration and outside Preview/development', async () => {
     vi.stubEnv('INTERNAL_ACCESS_TOKEN', '');

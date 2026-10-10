@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CARRIES, DISTANCES, EMPTY_DETAILS, guidedForm, guidedNotes, ITEM_LOCATIONS, JOB_TYPES, STAIRS, STEPS, stepProblem, type GuidedDetails } from './lib/guided-estimate';
 import { MAX_ESTIMATE_PHOTOS } from './lib/estimate-limits';
+import { PHOTO_INPUT_ACCEPT } from './lib/photo-optimizer';
 import { LocationSearch } from './location-search';
 import { LOCATION_REQUIRED } from './lib/location-resolution';
 import { availableAccessAddOns } from './lib/pricing';
@@ -63,7 +64,7 @@ export function GuidedJobForm({ disabled, photoStatus, photoMessage, photoCount,
           </div>}
         </>}
         {step === 4 && <>
-          <label className="photoPicker">Job photos, 1-{MAX_ESTIMATE_PHOTOS} images<input name="photos" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple aria-describedby="photo-help photo-status" onChange={(e) => onPhotos(e.target.files)} /></label>
+          <label className="photoPicker">Job photos, 1-{MAX_ESTIMATE_PHOTOS} images<input name="photos" type="file" accept={PHOTO_INPUT_ACCEPT} multiple aria-describedby="photo-help photo-status" onChange={(e) => onPhotos(e.target.files)} /></label>
           <p id="photo-help" className="helperText">Include the full removal scope and different angles of the same items. {photoCount ? `${photoCount} image(s) selected.` : 'Choose up to 10 images.'}</p>
           <p id="photo-status" role="status" aria-live="polite" className={photoStatus === 'error' ? 'photoErrorText' : 'helperText'}>{photoMessage}</p>
           <p className="helperText">Photos stay within the existing safe upload budget. If they cannot fit without losing too much detail, choose fewer photos.</p>

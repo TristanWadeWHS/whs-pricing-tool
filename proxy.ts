@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { INTERNAL_SESSION_COOKIE, INTERNAL_SESSION_SECONDS, issueInternalSession, validInternalSession } from './app/lib/internal-session';
 
 export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
@@ -12,12 +13,37 @@ export function proxy(req: NextRequest) {
   }
 
   const suppliedToken = getSuppliedToken(req);
-  if (!suppliedToken || !constantTimeEquals(suppliedToken, configuredToken)) {
+  // NextURL normalizes loopback IPs to localhost. Compare against the actual
+  // request authority, not that normalized alias (and never X-Forwarded-Host).
+  const host = req.headers.get('host') || req.nextUrl.host;
+  const originForRequest = `${req.nextUrl.protocol}//${host}`;
+  const headerAuthorized = !!suppliedToken && constantTimeEquals(suppliedToken, configuredToken);
+  const sessionAuthorized = validInternalSession(req.cookies.get(INTERNAL_SESSION_COOKIE)?.value, configuredToken, host);
+  if (!headerAuthorized && !sessionAuthorized) {
+    // A background API 401 must not open another native Basic-auth dialog.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Sign-in is required. Sign in to this same site in another tab, then retry here. Your unsent entries stay in this tab.' }, {
+        status: 401, headers: { 'cache-control': 'no-store' }
+      });
+    }
     return protectedResponse('Unauthorized', 401, true);
+  }
+
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    const origin = req.headers.get('origin');
+    if ((origin !== null && origin !== originForRequest) || (!headerAuthorized && origin !== originForRequest)
+      || req.headers.get('sec-fetch-site') === 'cross-site') {
+      return protectedResponse('Cross-origin request rejected.', 403);
+    }
   }
 
   const response = NextResponse.next();
   response.headers.set('cache-control', 'no-store');
+  if (headerAuthorized && !sessionAuthorized) {
+    response.cookies.set(INTERNAL_SESSION_COOKIE, issueInternalSession(configuredToken, host), {
+      httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: INTERNAL_SESSION_SECONDS
+    });
+  }
   return response;
 }
 
