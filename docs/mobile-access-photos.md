@@ -1,5 +1,44 @@
 # Mobile access and Photo Library candidate
 
+## Confirmed budget failure and skipped compression floor
+
+The subsequent iPhone screenshot resolves the earlier diagnostic blocker:
+`processed-budget`, JPEG, original 3,807,149 bytes, decoded 3024 x 4032 via
+ImageBitmap, smallest output 431,120 bytes against the unchanged 367,001-byte
+ten-slot budget. Selection, decoding and encoding succeeded. Failure occurred
+locally before conversation insertion or upload; this is not evidence of HEIC,
+iCloud, authentication or server rejection.
+
+Code inspection found that the dimension sequence stopped at 1479 pixels:
+2048 -> 1740 -> 1479 -> 1257, with 1257 below the configured 1280 minimum.
+It therefore skipped the entire permitted 1280-pixel compression pass. The fix
+clamps the last step to the existing minimum and explicitly terminates there.
+No byte limits, 0.68 quality floor, 1280 dimension floor, decoder, authentication,
+pricing, request construction or server validation changed. Prior snapshot:
+`pre-photo-floor-snapshot-d8c0708` at d8c0708c218240e9738cd708d9db9491d4fc1423;
+retained Preview dpl_7Xm2Ya4qeDVUMT2s2DZxD1nR7Pgy.
+
+Validation: 23 optimizer tests pass, including exact floor termination, portrait/
+landscape/small inputs, a synthetic budget regression and ten photos in three
+batches. Typecheck passes. Real mobile-emulated Chromium decoding, canvas JPEG
+encoding, FormData and unchanged local server validation accepted a deterministic
+high-detail synthetic 3024 x 4032 JPEG at 960 x 1280 and 335,363 bytes. The server
+returned the expected provider-disabled 503 AFTER file validation, without an AI
+call. An initial full-amplitude random-noise fixture did not fit; reducing only
+fixture contrast exercised the successful final pass. Limits were not relaxed to
+make either test succeed. No real photo or screenshot was committed.
+
+The new browser assertion requires the successful synthetic output to reach the
+exact 1280 floor, so the previous implementation cannot pass that check. Native
+iPhone Safari and its picker remain unavailable. The user's actual photo may
+still exceed the budget at the final pass; no claim of real-device recovery is
+made until Tristan retries. On the updated Preview choose the same Photo Library
+image and confirm `1/10 photos ready` and an upright thumbnail. If it fails,
+share only the `Photo check:` line; no Send/AI call is needed for this check.
+
+Production remains at 90ae1c249069a9f5ff05018c48271403dfad33b2 / deployment
+dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H. PR #19 stays draft; no merge or promotion.
+
 ## Follow-up: iPhone optimization failure diagnosis
 
 The user confirmed login is fixed but reported exactly the generic optimization

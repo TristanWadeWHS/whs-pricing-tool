@@ -23,8 +23,19 @@ try {
   // Start with a photo: the intentionally empty provider key also disables
   // conversation signing, so this check does not exercise signed continuation.
   const input = page.getByLabel('Choose photos from your library', { exact: true });
-  const photo = await sharp({ create: { width: 1800, height: 2400, channels: 3, background: '#7495a2' } }).jpeg().toBuffer();
+  // Deterministic high-detail synthetic pixels exercise compression rather than
+  // the tiny output of a flat-color image. No customer photo is required.
+  const pixels = Buffer.alloc(1512 * 2016 * 3);
+  let seed = 123456;
+  for (let i = 0; i < pixels.length; i++) {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    pixels[i] = 64 + (seed & 127);
+  }
+  const photo = await sharp(pixels, { raw: { width: 1512, height: 2016, channels: 3 } }).resize(3024, 4032).jpeg({ quality: 90 }).toBuffer();
   await input.setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: photo });
+  await page.waitForFunction(() => !document.querySelector('input[type=file]').disabled);
+  const optimizationError = page.getByText('Photo check:', { exact: false });
+  assert.equal(await optimizationError.count(), 0, await optimizationError.count() ? await optimizationError.textContent() : '');
   await page.getByText('1/10 photos ready.', { exact: false }).waitFor();
   async function sendAndVerify(count) {
     await page.getByLabel('Message Winston', { exact: true }).fill('Synthetic upload validation only.');
@@ -39,7 +50,11 @@ try {
     const files = form.getAll('photos'); assert.equal(files.length, count);
     assert(files.every((p) => p.type === 'image/jpeg'));
     assert(files.reduce((n, f) => n + f.size, 0) <= Math.floor(3.5 * 1024 * 1024));
-    metadata.push({ httpStatus: 503, category: 'server-photo-validation-passed-provider-disabled', files: files.length, processedBytes: files.reduce((n, f) => n + f.size, 0) });
+    const image = await sharp(Buffer.from(await files[0].arrayBuffer())).metadata();
+    assert(image.width < image.height);
+    assert.equal(image.width, 960); assert.equal(image.height, 1280);
+    assert(files.every((p) => p.size <= Math.floor(3.5 * 1024 * 1024 / 10)));
+    metadata.push({ httpStatus: 503, category: 'server-photo-validation-passed-provider-disabled', files: files.length, processedBytes: files.reduce((n, f) => n + f.size, 0), width: image.width, height: image.height });
     await page.waitForFunction(() => !document.querySelector('textarea').disabled);
   }
   await sendAndVerify(1);

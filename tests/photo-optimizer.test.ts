@@ -51,6 +51,32 @@ function adapterFor(options: {
 }
 
 describe('photo optimization', () => {
+  it('tries the exact dimension floor once for portrait, landscape and small images', () => {
+    for (const [width, height] of [[3024, 4032], [4032, 3024], [1000, 1400], [960, 1280], [600, 800]]) {
+      const targets = getOptimizationTargets(width, height);
+      const floor = Math.min(Math.max(width, height), 1280);
+      const sizes = [...new Set(targets.map((t) => Math.max(t.width, t.height)))];
+      expect(sizes.at(-1)).toBe(floor);
+      expect(sizes.every((n) => n >= floor)).toBe(true);
+      expect(targets.filter((t) => Math.max(t.width, t.height) === floor).map((t) => t.quality)).toEqual([0.84, 0.8, 0.76, 0.72, 0.68]);
+      expect(targets.length).toBeLessThanOrEqual(20);
+    }
+  });
+  it('fits the reported processed-budget case at the existing floor across ten slots and multiple batches', async () => {
+    const adapter = adapterFor({ width: 3024, height: 4032 });
+    // Synthetic encoder fixture, not a claim about the user's original pixels.
+    adapter.encode = async (_image, t) => new Blob([new Uint8Array(t.height === 1280 && t.quality === 0.68 ? 323000 : 431120)], { type: 'image/jpeg' });
+    const photos = [];
+    for (const count of [1, 4, 5]) {
+      const result = await optimizePhotoSelection(Array.from({ length: count }, () => file('synthetic.jpg', 'image/jpeg', 3807149)), adapter, 10);
+      expect(result.ok).toBe(true);
+      if (result.ok) photos.push(...result.photos);
+    }
+    expect(photos).toHaveLength(10);
+    expect(photos.every((p) => p.width === 960 && p.height === 1280 && p.quality === 0.68)).toBe(true);
+    expect(photos.reduce((n, p) => n + p.optimizedBytes, 0)).toBeLessThanOrEqual(SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES);
+    expect(getProcessedImageBudget(10)).toBe(367001);
+  });
   it('reserves a ten-photo transport budget across separate room batches without recompressing prior photos', async () => {
     const batches = [];
     for (const count of [3, 7]) {

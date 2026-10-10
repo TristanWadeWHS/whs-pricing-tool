@@ -248,7 +248,9 @@ export function getOptimizationTargets(width: number, height: number) {
       additionalPasses += quality === PHOTO_OPTIMIZATION_LIMITS.initialQuality ? 0 : 1;
     }
 
-    scaledLongEdge = Math.floor(scaledLongEdge * PHOTO_OPTIMIZATION_LIMITS.dimensionStep);
+    // Always try the configured floor: a multiplicative step can skip over it.
+    if (scaledLongEdge === minimumLongEdge) break;
+    scaledLongEdge = Math.max(minimumLongEdge, Math.floor(scaledLongEdge * PHOTO_OPTIMIZATION_LIMITS.dimensionStep));
     additionalPasses += 1;
   }
 
