@@ -1,5 +1,44 @@
 # Mobile access and Photo Library candidate
 
+## Focused conversation scrolling and loading UI
+
+Baseline bf4a3a2d28e39be11e0c6e8d8b5d8a13d1a85dce is preserved by annotated
+`pre-conversation-ui-snapshot-bf4a3a2` and Preview dpl_Fq3YcZDVcZwSGyJxNwdV3cwz7yrC
+(https://whs-pricing-tool-p8kg-cnn5jtu9z-wade-home-services.vercel.app).
+Continue draft PR #19 on codex/mobile-access-photos, still based on PR #18.
+
+Removed the effect that scrolled to the bottom on messages, results and busy
+changes. Start/reset scrolls the conversation container to zero. Each new Winston
+message anchors once at its first line, with trailing space for short responses.
+Wheel/touch/scrollbar/keyboard navigation during a request suppresses that anchor;
+browser focus-induced scroll events do not masquerade as user navigation. The
+page is not scrolled. While the old result is hidden during processing, a same-size
+empty placeholder avoids collapsing the reading position. Reset focus prevents
+scrolling. Existing message, upload, pricing and failure-handling logic remains.
+
+A fixed-height composer status row shows visible preparation text and three dots,
+highlighted left-to-right, only while the conversation request is busy. It has a
+polite atomic status announcement; decorative dots are hidden from assistive
+technology and animation is disabled under prefers-reduced-motion. There are no
+partial prices in this status. Retry starts a fresh indicator; completion, failure
+and reset remove it, and stale responses cannot restore it.
+
+Verification: 28 affected conversation tests and typecheck passed. The focused
+tests/conversation-scroll.browser.mjs passes in desktop and mobile-emulated
+Chromium with mocked responses: initial/reset position, long and short response
+anchors, no request-start/bottom jump, manual scroll preservation, no typing jump,
+dot order, reduced motion, no price while pending, error/retry/reset lifecycle and
+stale-response rejection. Synthetic screenshots were inspected. No native Safari
+or live AI/Maps/Sheets calls. Production remains 90ae1c249069a9f5ff05018c48271403dfad33b2
+/ dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H, https://whs-pricing-tool-p8kg.vercel.app.
+No upload optimizer, auth, API, pricing, booking, dependencies or environment changes.
+
+Manual Preview check: start a conversation, send a message, verify the three dots
+without a viewport jump, then read the reply from its beginning. Scroll upward
+while another reply is pending and confirm the view stays where you left it.
+Start Over must clear the indicator/history and return to the top. The prior
+Preview above is the rollback test URL; do not move refs or promote Production.
+
 ## Confirmed budget failure and skipped compression floor
 
 The subsequent iPhone screenshot resolves the earlier diagnostic blocker:
