@@ -31,12 +31,15 @@ try {
     seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
     pixels[i] = 64 + (seed & 127);
   }
-  const photo = await sharp(pixels, { raw: { width: 1512, height: 2016, channels: 3 } }).resize(3024, 4032).jpeg({ quality: 90 }).toBuffer();
-  await input.setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: photo });
+  const detailed = [];
+  for (let i = 0; i < 10; i++) detailed.push({ name: `synthetic-${i}.jpg`, mimeType: 'image/jpeg', buffer:
+    await sharp(pixels, { raw: { width: 1512, height: 2016, channels: 3 } }).resize(3024, 4032).modulate({ brightness: 1 - i * 0.01 }).jpeg({ quality: 90 }).toBuffer() });
+  await input.setInputFiles(detailed.slice(0, 6));
   await page.waitForFunction(() => !document.querySelector('input[type=file]').disabled);
   const optimizationError = page.getByText('Photo check:', { exact: false });
   assert.equal(await optimizationError.count(), 0, await optimizationError.count() ? await optimizationError.textContent() : '');
-  await page.getByText('1/10 photos ready.', { exact: false }).waitFor();
+  await page.getByText('6/10 photos ready.', { exact: false }).waitFor();
+  let retained = [];
   async function sendAndVerify(count) {
     await page.getByLabel('Message Winston', { exact: true }).fill('Synthetic upload validation only.');
     const received = page.waitForResponse((r) => r.url().endsWith('/api/conversation') && r.request().method() === 'POST');
@@ -52,29 +55,31 @@ try {
     assert(files.reduce((n, f) => n + f.size, 0) <= Math.floor(3.5 * 1024 * 1024));
     const image = await sharp(Buffer.from(await files[0].arrayBuffer())).metadata();
     assert(image.width < image.height);
-    assert.equal(image.width, 960); assert.equal(image.height, 1280);
-    assert(files.every((p) => p.size <= Math.floor(3.5 * 1024 * 1024 / 10)));
+    assert(image.height >= 1280 && image.height <= 2048);
+    assert(files.some((p) => p.size > 367001), 'Actual batch permits outputs larger than the old ten-slot share');
+    const buffers = await Promise.all(files.map(async (p) => Buffer.from(await p.arrayBuffer())));
+    if (!retained.length) retained = buffers;
+    else for (let i = 0; i < retained.length; i++) assert(buffers[i].equals(retained[i]), 'Prior bytes/order must not change');
     metadata.push({ httpStatus: 503, category: 'server-photo-validation-passed-provider-disabled', files: files.length, processedBytes: files.reduce((n, f) => n + f.size, 0), width: image.width, height: image.height });
     await page.waitForFunction(() => !document.querySelector('textarea').disabled);
   }
-  await sendAndVerify(1);
+  await sendAndVerify(6);
   await input.setInputFiles({ name: 'broken.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('not-an-image') });
   await page.getByText('Photo check: decode;', { exact: false }).waitFor();
-  assert.equal(await page.locator('text=/1\\/10 photos in this conversation/').count(), 1);
-  // Optional supplied desktop copy stays outside the worktree; no screenshot,
-  // binary persistence, names, notes or other customer metadata are produced.
-  if (process.env.LOCAL_PHOTO_INPUT) {
-    await input.setInputFiles(process.env.LOCAL_PHOTO_INPUT);
-    await page.waitForFunction(() => !document.querySelector('input[type=file]').disabled);
-    const failure = await page.getByText('Photo check:', { exact: false }).count();
-    if (failure) {
-      console.log(JSON.stringify({ laptopCopy: 'local-optimization-failed', diagnostic: await page.getByText('Photo check:', { exact: false }).textContent() }));
-    } else {
-      await page.getByText('2/10 photos ready.', { exact: false }).waitFor();
-      await sendAndVerify(2);
-      console.log(JSON.stringify({ laptopCopy: 'server-validation-passed' }));
-    }
-  }
+  assert.equal(await page.locator('text=/6\\/10 photos in this conversation/').count(), 1);
+  await input.setInputFiles(detailed.slice(6));
+  await page.getByText('These photos cannot fit in the remaining upload allowance', { exact: false }).waitFor();
+  assert.equal(await page.locator('text=/6\\/10 photos in this conversation/').count(), 1);
+  await page.getByRole('button', { name: 'Retry photos', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('input[type=file]').disabled);
+  await page.getByText('These photos cannot fit in the remaining upload allowance', { exact: false }).waitFor();
+  const small = [];
+  for (let i = 0; i < 4; i++) small.push({ name: `small-${i}.jpg`, mimeType: 'image/jpeg', buffer: await sharp({ create: { width: 600, height: 800, channels: 3, background: { r: 50 + i * 30, g: 80, b: 100 } } }).jpeg().toBuffer() });
+  await input.setInputFiles(small);
+  await page.getByText('10/10 photos ready.', { exact: false }).waitFor();
+  await sendAndVerify(10);
+  await input.setInputFiles(small[0]);
+  await page.getByText('This estimate supports ten photos total.', { exact: false }).waitFor();
   assert.deepEqual(external, []); assert.deepEqual(errors, []);
   console.log(JSON.stringify({ realMultipartAndRoute: true, metadata, liveProviderCalls: 0, nativeIOSPicker: false }));
   await context.close();

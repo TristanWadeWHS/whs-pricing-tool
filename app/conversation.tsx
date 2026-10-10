@@ -57,7 +57,10 @@ export default function Conversation() {
     photoLock.current = true; setOptimizing(true); setFailedPhotos([]); setUploadStatus(`Preparing ${files.length} photo${files.length === 1 ? '' : 's'}...`);
     const run = generation.current, batchRoom = room.trim() || 'General';
     try {
-    const optimized = await optimizePhotoSelection(files, undefined, 10);
+    const optimized = await optimizePhotoSelection(files, undefined, {
+      count: photoRef.current.length,
+      bytes: photoRef.current.reduce((total, photo) => total + photo.file.size, 0)
+    });
     if (run !== generation.current) return;
     if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(photoFailureMessage(optimized)); }
     else {

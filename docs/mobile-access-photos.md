@@ -1,5 +1,46 @@
 # Mobile access and Photo Library candidate
 
+## Actual-batch aggregate photo budgeting
+
+Baseline 8a9cc41dc362b0e2a67fe0f815189c385ba8900c is preserved by annotated
+`pre-batch-budget-snapshot-8a9cc41` and retained Preview dpl_FuGVLoTUnhjqQZGhMffgvjJ3vs35
+(https://whs-pricing-tool-p8kg-3p5g9ie2q-wade-home-services.vercel.app).
+
+Confirmed root cause: the conversation passed a fixed reservedSlots=10 even for
+six new photos. The resulting 367,001-byte equal share was enforced per image,
+rejecting the reported 406,947-byte output despite an otherwise fitting batch.
+
+The conversation now supplies the actual retained count and sum of retained file
+bytes. Remaining allowance is 3,670,016 minus retained bytes; the first compression
+target is remaining bytes divided by NEW batch count, capped at the unchanged
+server per-image limit. An image that cannot reach that target may contribute its
+smallest supported output instead. The aggregate decides acceptance, not an
+arbitrary equal share. If the combined new outputs exceed the remaining allowance,
+a bounded second pass chooses each new image's smallest supported output. If that
+still cannot fit, the whole new batch fails with a clear smaller-batch message.
+Retained files are never recompressed/reordered: signed photo hashes stay valid.
+No byte limits, supported formats, dimension/quality floors or server rules changed.
+
+Regression: six 406,947-byte outputs total 2,441,682 bytes and are accepted. The
+initial six-image target with no retained files is 611,669 bytes, not 367,001.
+Focused tests also cover unequal sizes, second-pass redistribution, retained-byte
+accounting, ten photos across batches, genuinely excessive totals and smaller retries.
+Typecheck passes. Real mobile-emulated browser decoding/canvas/FormData and local
+server validation passed with six synthetic JPEGs totaling 3,464,562 bytes, then
+ten photos totaling 3,479,003 bytes. An intervening oversized follow-up batch and
+retry failed without losing the original six; their bytes and order were compared
+in memory and remained identical. Invalid JPEG recovery and the eleventh-photo
+guard passed. The server's expected 503 with AI disabled occurs AFTER validation;
+this is upload verification, not an AI analysis claim. No live external calls or
+customer fixtures. Native iPhone Safari remains a manual gate.
+
+Manual check: choose the same six iPhone photos and confirm six are ready; submit
+normally when ready to analyze. Add another batch within the ten-photo total.
+A genuine capacity error must leave the conversation and earlier photos intact.
+Use the retained baseline Preview above for rollback testing, without moving refs.
+PR #19 remains draft. Production stays 90ae1c249069a9f5ff05018c48271403dfad33b2 /
+dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H. No merge, promotion, pricing, auth or environment changes.
+
 ## Focused conversation scrolling and loading UI
 
 Baseline bf4a3a2d28e39be11e0c6e8d8b5d8a13d1a85dce is preserved by annotated

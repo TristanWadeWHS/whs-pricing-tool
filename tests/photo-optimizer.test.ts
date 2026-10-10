@@ -62,30 +62,73 @@ describe('photo optimization', () => {
       expect(targets.length).toBeLessThanOrEqual(20);
     }
   });
-  it('fits the reported processed-budget case at the existing floor across ten slots and multiple batches', async () => {
+  it('tries the existing floor when the actual batch exceeds its aggregate allowance', async () => {
     const adapter = adapterFor({ width: 3024, height: 4032 });
     // Synthetic encoder fixture, not a claim about the user's original pixels.
     adapter.encode = async (_image, t) => new Blob([new Uint8Array(t.height === 1280 && t.quality === 0.68 ? 323000 : 431120)], { type: 'image/jpeg' });
-    const photos = [];
-    for (const count of [1, 4, 5]) {
-      const result = await optimizePhotoSelection(Array.from({ length: count }, () => file('synthetic.jpg', 'image/jpeg', 3807149)), adapter, 10);
-      expect(result.ok).toBe(true);
-      if (result.ok) photos.push(...result.photos);
-    }
+    const result = await optimizePhotoSelection(Array.from({ length: 10 }, () => file('synthetic.jpg', 'image/jpeg', 3807149)), adapter);
+    expect(result.ok).toBe(true);
+    const photos = result.ok ? result.photos : [];
     expect(photos).toHaveLength(10);
     expect(photos.every((p) => p.width === 960 && p.height === 1280 && p.quality === 0.68)).toBe(true);
     expect(photos.reduce((n, p) => n + p.optimizedBytes, 0)).toBeLessThanOrEqual(SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES);
     expect(getProcessedImageBudget(10)).toBe(367001);
   });
-  it('reserves a ten-photo transport budget across separate room batches without recompressing prior photos', async () => {
+  it('accounts for retained bytes across ten photos in separate batches without recompressing prior photos', async () => {
     const batches = [];
     for (const count of [3, 7]) {
-      const result = await optimizePhotoSelection(Array.from({ length: count }, (_, i) => file(`room-${i}.jpg`, 'image/jpeg', 2000000)), adapterFor(), 10);
+      const result = await optimizePhotoSelection(Array.from({ length: count }, (_, i) => file(`room-${i}.jpg`, 'image/jpeg', 2000000)), adapterFor(), { count: batches.length, bytes: batches.reduce((n, p) => n + p.file.size, 0) });
       expect(result.ok).toBe(true); if (result.ok) batches.push(...result.photos);
     }
     expect(batches).toHaveLength(10);
     expect(batches.reduce((total, p) => total + p.optimizedBytes, 0)).toBeLessThanOrEqual(SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES);
-    expect((await optimizePhotoSelection([file('bad.jpg', 'image/jpeg', 20)], adapterFor(), 11)).ok).toBe(false);
+    expect((await optimizePhotoSelection([file('bad.jpg', 'image/jpeg', 20)], adapterFor(), { count: 10, bytes: 100 })).ok).toBe(false);
+  });
+  it('accepts six reported 406947-byte outputs, not an arbitrary ten-slot share', async () => {
+    const result = await optimizePhotoSelection(Array.from({ length: 6 }, (_, i) => file(`p${i}.jpg`, 'image/jpeg', 4044394)), adapterFor({ minimumEncodedBytes: 406947, compressionDivisor: 100 }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.totalBytes).toBe(2441682);
+      expect(result.photos.map((p) => p.file.name)).toEqual(['p0.jpg', 'p1.jpg', 'p2.jpg', 'p3.jpg', 'p4.jpg', 'p5.jpg']);
+    }
+    expect(getProcessedImageBudget(6)).toBe(611669);
+  });
+  it('accepts uneven outputs above equal shares when their combined size fits', async () => {
+    const adapter = adapterFor();
+    adapter.decode = async (input) => ({ width: 3024, height: 4032, source: { bytes: input.name === 'large.jpg' ? 900000 : 200000 } as unknown as CanvasImageSource });
+    adapter.encode = async (image) => new Blob([new Uint8Array((image.source as unknown as { bytes: number }).bytes)], { type: 'image/jpeg' });
+    const inputs = ['large.jpg', 'b.jpg', 'c.jpg', 'd.jpg', 'e.jpg', 'f.jpg'].map((name) => file(name, 'image/jpeg', 1000));
+    const result = await optimizePhotoSelection(inputs, adapter);
+    expect(result.ok).toBe(true);
+    if (result.ok) { expect(result.totalBytes).toBe(1900000); expect(result.photos[0].optimizedBytes).toBe(900000); }
+  });
+  it('rejects a genuinely over-budget batch without mutating retained files and permits a smaller retry', async () => {
+    const retained = { count: 4, bytes: 3000000 };
+    const adapter = adapterFor({ minimumEncodedBytes: 406947, compressionDivisor: 100 });
+    const photo = file('synthetic.jpg', 'image/jpeg', 4044394);
+    expect(await optimizePhotoSelection([photo, photo], adapter, retained)).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.batchTooLarge });
+    const retry = await optimizePhotoSelection([photo], adapter, retained);
+    expect(retry.ok).toBe(true);
+    expect(retained).toEqual({ count: 4, bytes: 3000000 });
+    expect(getProcessedImageBudget(2, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES - retained.bytes)).toBe(335008);
+  });
+  it('reclaims unused compression potential instead of enforcing equal shares on the final pass', async () => {
+    const adapter = adapterFor();
+    adapter.decode = async (input) => ({ width: 3024, height: 4032, source: { fixed: input.name === 'fixed.jpg' } as unknown as CanvasImageSource });
+    adapter.encode = async (image, target) => new Blob([new Uint8Array((image.source as unknown as { fixed: boolean }).fixed ? 600000 : target.height === 1280 ? 200000 : 500000)], { type: 'image/jpeg' });
+    const result = await optimizePhotoSelection(['fixed.jpg', 'compressible.jpg'].map((name) => file(name, 'image/jpeg', 1000)), adapter,
+      { count: 2, bytes: SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES - 1000000 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.photos.map((p) => p.optimizedBytes)).toEqual([600000, 200000]);
+  });
+  it('rejects invalid retained capacity and exhausts no decoder work with zero space', async () => {
+    const adapter = adapterFor(); const decode = vi.spyOn(adapter, 'decode');
+    const photo = file('test.jpg', 'image/jpeg', 1000);
+    for (const retained of [{ count: -1, bytes: 0 }, { count: 0, bytes: -1 }, { count: 0, bytes: NaN }, { count: 0, bytes: SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES + 1 }]) {
+      expect((await optimizePhotoSelection([photo], adapter, retained)).ok).toBe(false);
+    }
+    expect(await optimizePhotoSelection([photo], adapter, { count: 2, bytes: SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES })).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.batchTooLarge });
+    expect(decode).not.toHaveBeenCalled();
   });
   it('optimizes a normal oversized iPhone-style JPEG below the server image limit', async () => {
     const result = await optimizePhotoSelection([file('iphone.jpg', 'image/jpeg', 6 * 1024 * 1024)], adapterFor());
@@ -278,14 +321,14 @@ describe('Photo Library decoding', () => {
       [{ ...adapterFor(), encode: async () => null }, 'encode-empty'],
       [{ ...adapterFor(), encode: async () => new Blob([]) }, 'encode-empty'],
       [failing, 'encode-exception'],
-      [adapterFor({ minimumEncodedBytes: 500000 }), 'processed-budget']
+      [adapterFor({ minimumEncodedBytes: MAX_ESTIMATE_IMAGE_BYTES + 1 }), 'processed-budget']
     ];
     for (const [adapter, stage] of cases) {
-      const result = await optimizePhotoSelection([source], adapter, 10);
+      const result = await optimizePhotoSelection([source], adapter);
       expect(result.ok).toBe(false); if (result.ok !== false) continue;
       expect(result.diagnostic?.stage).toBe(stage);
       expect(result.diagnostic?.originalBytes).toBe(1234);
-      expect(result.diagnostic?.budgetBytes).toBe(getProcessedImageBudget(10));
+      expect(result.diagnostic?.budgetBytes).toBe(getProcessedImageBudget(1));
       expect(photoFailureMessage(result)).toContain('Not uploaded.');
       expect(photoFailureMessage(result)).not.toContain('synthetic-private-marker');
     }

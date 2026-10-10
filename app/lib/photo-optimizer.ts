@@ -1,5 +1,4 @@
 import {
-  IMAGE_TOO_LARGE_MESSAGE,
   MAX_ESTIMATE_IMAGE_BYTES,
   MAX_ESTIMATE_PHOTOS,
   SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES
@@ -9,6 +8,7 @@ export const OPTIMIZATION_MESSAGES = {
   optimizing: 'Optimizing photos for analysis...',
   ready: 'Photos optimized and ready.',
   failed: "We couldn't optimize one or more photos. Please try fewer photos or choose another image.",
+  batchTooLarge: 'These photos cannot fit in the remaining upload allowance after optimization. Try fewer photos or a smaller batch. Your conversation and already selected photos are retained.',
   unsupportedHeic: 'This HEIC/HEIF photo could not be prepared. Your other photos are retained. Retry after the original finishes downloading from iCloud, or choose a JPEG copy.'
 };
 
@@ -102,32 +102,39 @@ export type PhotoOptimizerAdapter = {
   encode(image: DecodedImage, target: { width: number; height: number; quality: number }): Promise<Blob | null>;
 };
 
-export async function optimizePhotoSelection(files: File[], adapter = browserPhotoOptimizerAdapter, reservedSlots = files.length): Promise<OptimizeSelectionResult> {
+export async function optimizePhotoSelection(files: File[], adapter = browserPhotoOptimizerAdapter,
+  retained: { count: number; bytes: number } = { count: 0, bytes: 0 }): Promise<OptimizeSelectionResult> {
   if (files.length === 0) {
     return { ok: false, error: 'Upload at least one photo.' };
   }
 
-  if (files.length > PHOTO_OPTIMIZATION_LIMITS.maxPhotos) {
+  if (!Number.isInteger(retained.count) || retained.count < 0 || !Number.isSafeInteger(retained.bytes) || retained.bytes < 0 || retained.bytes > PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
+    return { ok: false, error: 'Invalid retained photo capacity.' };
+  }
+  if (files.length + retained.count > PHOTO_OPTIMIZATION_LIMITS.maxPhotos) {
     return { ok: false, error: `Upload no more than ${PHOTO_OPTIMIZATION_LIMITS.maxPhotos} photos.` };
   }
 
-  if (!Number.isInteger(reservedSlots) || reservedSlots < files.length || reservedSlots > MAX_ESTIMATE_PHOTOS) return { ok: false, error: 'Invalid photo capacity.' };
-  const initialBudget = getProcessedImageBudget(reservedSlots, reservedSlots === files.length);
+  const remainingBytes = PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes - retained.bytes;
+  if (!remainingBytes) return { ok: false, error: OPTIMIZATION_MESSAGES.batchTooLarge };
+  const initialBudget = getProcessedImageBudget(files.length, remainingBytes);
   const firstPass = await optimizeWithBudget(files, initialBudget, adapter);
   if (!firstPass.ok) return firstPass;
 
   const totalBytes = sumOptimizedBytes(firstPass.photos);
-  if (totalBytes <= PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
+  if (totalBytes <= remainingBytes) {
     return { ok: true, photos: firstPass.photos, totalBytes, message: buildReadyMessage(firstPass.photos) };
   }
 
-  const finalBudget = getProcessedImageBudget(reservedSlots, false);
-  const finalPass = await optimizeWithBudget(files, finalBudget, adapter);
+  // Shares are optimization targets, not hard caps. Only if their combined
+  // outputs exceed the remaining allowance, try each new file's smallest output.
+  // Retained files are never rewritten: their hashes may be in signed context.
+  const finalPass = await optimizeWithBudget(files, 0, adapter);
   if (!finalPass.ok) return finalPass;
 
   const finalTotalBytes = sumOptimizedBytes(finalPass.photos);
-  if (finalTotalBytes > PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
-    return { ok: false, error: IMAGE_TOO_LARGE_MESSAGE };
+  if (finalTotalBytes > remainingBytes) {
+    return { ok: false, error: OPTIMIZATION_MESSAGES.batchTooLarge };
   }
 
   return { ok: true, photos: finalPass.photos, totalBytes: finalTotalBytes, message: buildReadyMessage(finalPass.photos) };
@@ -148,12 +155,9 @@ export function buildAnalyzeFormWithOptimizedPhotos(formData: FormData, photos: 
   return nextFormData;
 }
 
-export function getProcessedImageBudget(fileCount: number, preserveSingleImageDetail = false) {
+export function getProcessedImageBudget(fileCount: number, remainingBytes = PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes) {
   const count = Math.max(1, fileCount);
-  const totalBudget = PHOTO_OPTIMIZATION_LIMITS.totalProcessedBytes;
-  const fairShare = Math.floor(totalBudget / count);
-  const preferredShare = preserveSingleImageDetail ? Math.floor(fairShare * 1.15) : fairShare;
-  return Math.min(PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes, preferredShare);
+  return Math.min(PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes, Math.floor(remainingBytes / count));
 }
 
 async function optimizeWithBudget(files: File[], budgetBytes: number, adapter: PhotoOptimizerAdapter): Promise<OptimizeSelectionResult> {
@@ -185,6 +189,7 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
   }
 
   let smallestEncodedBytes: number | null = null;
+  let smallest: OptimizedPhoto | null = null;
   try {
     const targets = getOptimizationTargets(decoded.width, decoded.height);
     if (!targets.length) return photoFailure(file, 'dimensions', budgetBytes, decoded);
@@ -193,22 +198,20 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
       if (!blob || !blob.size) continue;
       smallestEncodedBytes = Math.min(smallestEncodedBytes ?? blob.size, blob.size);
 
-      if (blob.size <= budgetBytes && blob.size <= PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes) {
+      if (blob.size <= PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes && (!smallest || blob.size < smallest.optimizedBytes)) {
         const outputName = replaceImageExtension(file.name);
-        return {
-          ok: true as const,
-          photo: {
-            originalName: file.name,
-            file: new File([blob], outputName, { type: 'image/jpeg', lastModified: Date.now() }),
-            originalBytes: file.size,
-            optimizedBytes: blob.size,
-            width: target.width,
-            height: target.height,
-            quality: target.quality,
-            additionalPasses: target.additionalPasses
-          }
+        smallest = {
+          originalName: file.name,
+          file: new File([blob], outputName, { type: 'image/jpeg', lastModified: Date.now() }),
+          originalBytes: file.size,
+          optimizedBytes: blob.size,
+          width: target.width,
+          height: target.height,
+          quality: target.quality,
+          additionalPasses: target.additionalPasses
         };
       }
+      if (smallest && smallest.optimizedBytes <= budgetBytes) return { ok: true, photo: smallest };
     }
   } catch (error) {
     return photoFailure(file, 'encode-exception', budgetBytes, decoded, smallestEncodedBytes, error);
@@ -216,7 +219,8 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
     decoded.close?.();
   }
 
-  return photoFailure(file, smallestEncodedBytes === null ? 'encode-empty' : 'processed-budget', budgetBytes, decoded, smallestEncodedBytes);
+  if (smallest) return { ok: true, photo: smallest };
+  return photoFailure(file, smallestEncodedBytes === null ? 'encode-empty' : 'processed-budget', PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes, decoded, smallestEncodedBytes);
 }
 
 export function getOptimizationTargets(width: number, height: number) {
