@@ -8,6 +8,7 @@ import {
   PHOTO_OPTIMIZATION_LIMITS,
   browserPhotoOptimizerAdapter,
   PHOTO_INPUT_ACCEPT,
+  photoFailureMessage,
   type PhotoOptimizerAdapter
 } from '../app/lib/photo-optimizer';
 import {
@@ -125,7 +126,7 @@ describe('photo optimization', () => {
   it('stops with a controlled failure instead of exceeding minimum quality and dimensions', async () => {
     const result = await optimizePhotoSelection([file('huge.jpg', 'image/jpeg', 8 * 1024 * 1024)], adapterFor({ minimumEncodedBytes: MAX_ESTIMATE_IMAGE_BYTES + 1 }));
 
-    expect(result).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.failed });
+    expect(result).toMatchObject({ ok: false, error: OPTIMIZATION_MESSAGES.failed, diagnostic: { stage: 'processed-budget' } });
   });
 
   it('reports unsupported formats and unsupported HEIC decode separately', async () => {
@@ -134,7 +135,7 @@ describe('photo optimization', () => {
       error: 'Photos must be JPEG, PNG, WebP, HEIC, or HEIF images.'
     });
 
-    await expect(optimizePhotoSelection([file('photo.heic', 'image/heic', 4 * 1024 * 1024)], adapterFor({ failDecodeFor: ['image/heic'] }))).resolves.toEqual({
+    await expect(optimizePhotoSelection([file('photo.heic', 'image/heic', 4 * 1024 * 1024)], adapterFor({ failDecodeFor: ['image/heic'] }))).resolves.toMatchObject({
       ok: false,
       error: OPTIMIZATION_MESSAGES.unsupportedHeic
     });
@@ -143,7 +144,7 @@ describe('photo optimization', () => {
   it('rejects unreasonably large original files before decode work', async () => {
     const result = await optimizePhotoSelection([file('too-large.jpg', 'image/jpeg', PHOTO_OPTIMIZATION_LIMITS.maxOriginalBytes + 1)], adapterFor());
 
-    expect(result).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.failed });
+    expect(result).toMatchObject({ ok: false, error: OPTIMIZATION_MESSAGES.failed, diagnostic: { stage: 'input-byte-limit' } });
   });
 
   it('optimizes ten photos within the unchanged combined budget', async () => {
@@ -207,7 +208,7 @@ describe('Photo Library decoding', () => {
     if (result.ok) { expect(result.photos[0].width).toBe(600); expect(result.photos[0].height).toBe(800); }
     expect(getOptimizationTargets(0, 0)).toEqual([]);
     const adapter = adapterFor(); adapter.encode = async () => { throw new Error('canvas unavailable'); };
-    expect(await optimizePhotoSelection([file('photo.jpg', 'image/jpeg', 1024)], adapter)).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.failed });
+    expect(await optimizePhotoSelection([file('photo.jpg', 'image/jpeg', 1024)], adapter)).toMatchObject({ ok: false, error: OPTIMIZATION_MESSAGES.failed, diagnostic: { stage: 'encode-exception' } });
   });
   function imageElement(fails = false) {
     vi.stubGlobal('Image', class {
@@ -240,6 +241,28 @@ describe('Photo Library decoding', () => {
     const { heicTo } = await import('heic-to/csp');
     vi.mocked(heicTo).mockRejectedValue(new Error('invalid HEIF'));
     vi.stubGlobal('createImageBitmap', vi.fn().mockRejectedValue(new Error('unsupported'))); imageElement(true);
-    expect(await optimizePhotoSelection([file('photo.heic', 'image/heic', 32)])).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.unsupportedHeic });
+    expect(await optimizePhotoSelection([file('photo.heic', 'image/heic', 32)])).toMatchObject({ ok: false, error: OPTIMIZATION_MESSAGES.unsupportedHeic, diagnostic: { stage: 'decode' } });
+  });
+  it('distinguishes local failure stages without filenames, raw exceptions or photo contents', async () => {
+    const source = file('synthetic-private-marker.jpg', 'image/jpeg', 1234);
+    const failing = adapterFor(); failing.encode = async () => { throw new DOMException('synthetic-private-marker', 'SecurityError'); };
+    const cases: [PhotoOptimizerAdapter, string][] = [
+      [adapterFor({ failDecodeFor: ['image/jpeg'] }), 'decode'],
+      [adapterFor({ width: 0, height: 0 }), 'dimensions'],
+      [{ ...adapterFor(), encode: async () => null }, 'encode-empty'],
+      [{ ...adapterFor(), encode: async () => new Blob([]) }, 'encode-empty'],
+      [failing, 'encode-exception'],
+      [adapterFor({ minimumEncodedBytes: 500000 }), 'processed-budget']
+    ];
+    for (const [adapter, stage] of cases) {
+      const result = await optimizePhotoSelection([source], adapter, 10);
+      expect(result.ok).toBe(false); if (result.ok !== false) continue;
+      expect(result.diagnostic?.stage).toBe(stage);
+      expect(result.diagnostic?.originalBytes).toBe(1234);
+      expect(result.diagnostic?.budgetBytes).toBe(getProcessedImageBudget(10));
+      expect(photoFailureMessage(result)).toContain('Not uploaded.');
+      expect(photoFailureMessage(result)).not.toContain('synthetic-private-marker');
+    }
+    expect(await optimizePhotoSelection([file('empty.jpg', 'image/jpeg', 0)], adapterFor())).toMatchObject({ ok: false, diagnostic: { stage: 'input-empty' } });
   });
 });

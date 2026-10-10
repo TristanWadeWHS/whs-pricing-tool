@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { SERVICE_CHOICES, type Choice, type ConversationResult } from './lib/conversation-schema';
-import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT } from './lib/photo-optimizer';
+import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT, photoFailureMessage } from './lib/photo-optimizer';
 import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
 
@@ -44,7 +44,7 @@ export default function Conversation() {
     try {
     const optimized = await optimizePhotoSelection(files, undefined, 10);
     if (run !== generation.current) return;
-    if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(optimized.error); }
+    if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(photoFailureMessage(optimized)); }
     else {
       const added: Photo[] = []; const hashes = new Set(photoRef.current.map((p) => p.hash));
       for (const photo of optimized.photos) {

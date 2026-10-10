@@ -11,6 +11,7 @@ import { getPhotoSizeRejection } from './lib/estimate-limits';
 import {
   buildAnalyzeFormWithOptimizedPhotos,
   optimizePhotoSelection,
+  photoFailureMessage,
   OPTIMIZATION_MESSAGES,
   type OptimizedPhoto
 } from './lib/photo-optimizer';
@@ -71,7 +72,7 @@ export default function StaffEstimate() {
     if (selectionId.current !== currentSelectionId) return;
 
     if (optimized.ok === false) {
-      setPhotoState({ status: 'error', message: optimized.error, photos: [] });
+      setPhotoState({ status: 'error', message: photoFailureMessage(optimized), photos: [] });
       return;
     }
 

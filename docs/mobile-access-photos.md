@@ -1,5 +1,61 @@
 # Mobile access and Photo Library candidate
 
+## Follow-up: iPhone optimization failure diagnosis
+
+The user confirmed login is fixed but reported exactly the generic optimization
+failure message. At SHA `6a75017335b6ec481cf254226b011002a8fef7a4`, that message
+originates in the browser optimizer, before successful files enter conversation
+state and before multipart submission. It is shared by original-file rejection,
+non-HEIC decode failure, missing/invalid decoded dimensions, encoder exceptions,
+empty canvas output and processed-byte-budget exhaustion. It does NOT establish
+which of those conditions happened on the iPhone. MIME/format, iCloud availability
+and Safari behavior remain unproven; no size or format diagnosis is assumed.
+
+That version is preserved by annotated tag `pre-photo-diagnostics-snapshot-6a75017`
+and its retained Preview `dpl_EthDyHEfTBDrio8h1spCBGFvjBiN` at
+https://whs-pricing-tool-p8kg-9l5fzdtgw-wade-home-services.vercel.app.
+Work continues on the same PR #19 branch. The focused correction is diagnostic:
+retain the optimizer failure stage and show an allowlisted technical `Photo check`
+line, rather than throwing away all distinctions. It includes MIME/extension,
+original bytes, decoded dimensions, smallest encoded output size when available,
+unchanged per-photo budget, decoder path and sanitized exception category.
+No filename, raw exception message, EXIF, photos, credentials or customer text is
+included. Nothing is logged or sent as telemetry. Zero-length input/output is now
+explicitly rejected instead of passing an empty encoded blob downstream. No
+decoding algorithm, size limit, auth or server-validation rule has been relaxed.
+
+Evidence: the supplied desktop JPEG copy was 1,377,299 bytes, 1200 x 1600,
+orientation 1. The real browser optimizer produced a 339,161-byte JPEG under the
+same ten-slot budget. This proves only the available desktop copy works, not that
+the Photo Library delivers identical encoded bytes. The original stayed outside
+the worktree; no real-photo copy, screenshot, fixture or binary was saved to Git.
+
+`tests/mobile-photo-receipt.browser.mjs` uses the actual browser FormData and the
+unmodified Next `/api/conversation` handler. Unlike the earlier endpoint-mocked
+smoke, the local server parses the multipart stream, enforces bytes/MIME/signature,
+hashes files, checks room/order/state and only then returns its existing 503
+`Photo analysis is not configured` response because OPENAI_API_KEY is explicitly
+empty. This response is intentional proof of receipt/validation, NOT a successful
+analysis claim. These are fresh-state requests: the empty key also disables
+conversation signing, so this smoke does not verify signed continuation.
+One synthetic image (19,192 bytes processed), then that image plus
+the desktop copy (358,353 bytes total), both reached that gate. A corrupt JPEG
+produced a local `decode` diagnostic while retaining the earlier successful file.
+No live provider call, endpoint interception, Preview debug route or auth bypass
+is involved. Native Safari and its Photo Library picker remain unavailable.
+
+Validation: 21 affected optimizer tests and typecheck pass. The real-route mobile
+emulation passed. Retained request/selection budgets, ten-photo/multi-batch behavior,
+login fix, analysis, pricing, booking and Production are unchanged. Recent Vercel
+runtime-log counts were empty; older logs exceeded the one-hour retention. These
+logs cannot identify a browser-only failure.
+
+One required iPhone step: on the updated PR #19 Preview, select the same failing
+Photo Library image once and send only the `Photo check:` line displayed below
+the error. No Send/AI call is needed. That evidence is still required to choose
+the underlying repair; this diagnostic candidate does not claim the reported
+iPhone upload failure has been fixed.
+
 ## Preserved baseline
 
 - Starting branch: `codex/ordinary-job-volume`, PR #18 (draft, based on PR #17).

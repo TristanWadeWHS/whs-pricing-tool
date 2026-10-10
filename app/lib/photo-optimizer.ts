@@ -56,18 +56,46 @@ export type OptimizedPhoto = {
 
 export type OptimizeSelectionResult =
   | { ok: true; photos: OptimizedPhoto[]; totalBytes: number; message: string }
-  | { ok: false; error: string };
+  | PhotoFailure;
+
+type FailureStage = 'input-empty' | 'input-byte-limit' | 'decode' | 'dimensions' | 'encode-exception' | 'encode-empty' | 'processed-budget';
+type PhotoFailure = { ok: false; error: string; diagnostic?: {
+  stage: FailureStage; mime: string; extension: string; originalBytes: number;
+  budgetBytes: number; width: number | null; height: number | null;
+  processedBytes: number | null; decoder: string; errorCategory: string;
+} };
+
+function photoFailure(file: File, stage: FailureStage, budgetBytes: number, decoded: DecodedImage | null = null,
+  processedBytes: number | null = null, error?: unknown): PhotoFailure {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  const name = error instanceof Error ? error.name : '';
+  return { ok: false, error: stage === 'decode' && HEIC_TYPES.has(inputType(file)) ? OPTIMIZATION_MESSAGES.unsupportedHeic : OPTIMIZATION_MESSAGES.failed,
+    diagnostic: { stage, mime: [...SUPPORTED_INPUT_TYPES, 'application/octet-stream'].includes(file.type) ? file.type : file.type ? 'other' : 'empty',
+      extension: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext) ? ext : 'other', originalBytes: file.size, budgetBytes,
+      width: decoded && Number.isFinite(decoded.width) ? decoded.width : null, height: decoded && Number.isFinite(decoded.height) ? decoded.height : null,
+      processedBytes, decoder: decoded?.decoder ?? 'unavailable',
+      errorCategory: ['EncodingError', 'InvalidStateError', 'NotReadableError', 'NotSupportedError', 'SecurityError', 'AbortError', 'TimeoutError'].includes(name) ? name : 'unavailable' } };
+}
+
+// Display only bounded technical metadata, never filenames, exception messages,
+// EXIF, photo bytes or credentials. It stays in this tab; no telemetry is sent.
+export function photoFailureMessage(result: PhotoFailure) {
+  const d = result.diagnostic;
+  if (!d) return result.error;
+  return `${result.error} Photo check: ${d.stage}; type ${d.mime}; extension ${d.extension}; original ${d.originalBytes} bytes; decoded ${d.width ?? '?'} x ${d.height ?? '?'}; processed ${d.processedBytes ?? '?'} bytes; budget ${d.budgetBytes} bytes; decoder ${d.decoder}; category ${d.errorCategory}. Not uploaded.`;
+}
 
 type DecodedImage = {
   width: number;
   height: number;
   source: CanvasImageSource;
   close?: () => void;
+  decoder?: 'bitmap' | 'image-element' | 'heic-fallback';
 };
 
 type OptimizePhotoFileResult =
   | { ok: true; photo: OptimizedPhoto }
-  | { ok: false; error: string };
+  | PhotoFailure;
 
 export type PhotoOptimizerAdapter = {
   decode(file: File): Promise<DecodedImage>;
@@ -132,7 +160,7 @@ async function optimizeWithBudget(files: File[], budgetBytes: number, adapter: P
   const photos = [];
   for (const file of files) {
     const optimized = await optimizePhotoFile(file, budgetBytes, adapter);
-    if (optimized.ok === false) return { ok: false, error: optimized.error };
+    if (optimized.ok === false) return optimized;
     photos.push(optimized.photo);
   }
 
@@ -145,20 +173,25 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
   }
 
   if (file.size > PHOTO_OPTIMIZATION_LIMITS.maxOriginalBytes) {
-    return { ok: false as const, error: OPTIMIZATION_MESSAGES.failed };
+    return photoFailure(file, 'input-byte-limit', budgetBytes);
   }
+  if (!file.size) return photoFailure(file, 'input-empty', budgetBytes);
 
   let decoded: DecodedImage | null = null;
   try {
     decoded = await adapter.decode(file);
-  } catch {
-    return { ok: false as const, error: HEIC_TYPES.has(inputType(file)) ? OPTIMIZATION_MESSAGES.unsupportedHeic : OPTIMIZATION_MESSAGES.failed };
+  } catch (error) {
+    return photoFailure(file, 'decode', budgetBytes, null, null, error);
   }
 
+  let smallestEncodedBytes: number | null = null;
   try {
-    for (const target of getOptimizationTargets(decoded.width, decoded.height)) {
+    const targets = getOptimizationTargets(decoded.width, decoded.height);
+    if (!targets.length) return photoFailure(file, 'dimensions', budgetBytes, decoded);
+    for (const target of targets) {
       const blob = await adapter.encode(decoded, target);
-      if (!blob) continue;
+      if (!blob || !blob.size) continue;
+      smallestEncodedBytes = Math.min(smallestEncodedBytes ?? blob.size, blob.size);
 
       if (blob.size <= budgetBytes && blob.size <= PHOTO_OPTIMIZATION_LIMITS.maxProcessedImageBytes) {
         const outputName = replaceImageExtension(file.name);
@@ -177,13 +210,13 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
         };
       }
     }
-  } catch {
-    return { ok: false as const, error: OPTIMIZATION_MESSAGES.failed };
+  } catch (error) {
+    return photoFailure(file, 'encode-exception', budgetBytes, decoded, smallestEncodedBytes, error);
   } finally {
     decoded.close?.();
   }
 
-  return { ok: false as const, error: OPTIMIZATION_MESSAGES.failed };
+  return photoFailure(file, smallestEncodedBytes === null ? 'encode-empty' : 'processed-budget', budgetBytes, decoded, smallestEncodedBytes);
 }
 
 export function getOptimizationTargets(width: number, height: number) {
@@ -247,7 +280,7 @@ export const browserPhotoOptimizerAdapter: PhotoOptimizerAdapter = {
     // PNG pixels contain that orientation already, so do not rotate again.
     const { heicTo } = await import('heic-to/csp');
     const converted = await heicTo({ blob: file, type: 'image/png' });
-    return decodeNativePhoto(converted);
+    return { ...await decodeNativePhoto(converted), decoder: 'heic-fallback' };
   },
 
   async encode(image, target) {
@@ -269,11 +302,11 @@ async function decodeNativePhoto(file: Blob): Promise<DecodedImage> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      return { width: bitmap.width, height: bitmap.height, source: bitmap, close: () => bitmap.close() };
+      return { width: bitmap.width, height: bitmap.height, source: bitmap, close: () => bitmap.close(), decoder: 'bitmap' };
     } catch { /* Safari may decode a library image through <img> but not ImageBitmap. */ }
   }
   const image = await decodeWithImageElement(file);
-  return { width: image.naturalWidth, height: image.naturalHeight, source: image, close: () => { image.src = ''; } };
+  return { width: image.naturalWidth, height: image.naturalHeight, source: image, close: () => { image.src = ''; }, decoder: 'image-element' };
 }
 
 function decodeWithImageElement(file: Blob) {
