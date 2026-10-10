@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   buildAnalyzeFormWithOptimizedPhotos,
   getOptimizationTargets,
@@ -6,6 +6,8 @@ import {
   optimizePhotoSelection,
   OPTIMIZATION_MESSAGES,
   PHOTO_OPTIMIZATION_LIMITS,
+  browserPhotoOptimizerAdapter,
+  PHOTO_INPUT_ACCEPT,
   type PhotoOptimizerAdapter
 } from '../app/lib/photo-optimizer';
 import {
@@ -129,7 +131,7 @@ describe('photo optimization', () => {
   it('reports unsupported formats and unsupported HEIC decode separately', async () => {
     await expect(optimizePhotoSelection([file('scan.gif', 'image/gif', 1024)], adapterFor())).resolves.toEqual({
       ok: false,
-      error: 'Photos must be JPEG, PNG, WebP, or browser-supported HEIC images.'
+      error: 'Photos must be JPEG, PNG, WebP, HEIC, or HEIF images.'
     });
 
     await expect(optimizePhotoSelection([file('photo.heic', 'image/heic', 4 * 1024 * 1024)], adapterFor({ failDecodeFor: ['image/heic'] }))).resolves.toEqual({
@@ -183,5 +185,61 @@ describe('photo optimization', () => {
     expect(nextForm.get('distanceTier')).toBe('under25');
     expect(nextForm.get('notes')).toBe('short walk');
     expect(nextForm.getAll('photos')).toEqual([processed]);
+  });
+});
+
+vi.mock('heic-to/csp', () => ({ heicTo: vi.fn() }));
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+describe('Photo Library decoding', () => {
+  it('accepts HEIF and empty/octet-stream MIME types from known library extensions without weakening decoding', async () => {
+    for (const [name, type] of [['portrait.HEIC', ''], ['portrait.heif', 'application/octet-stream'], ['portrait.JPG', '']]) {
+      const result = await optimizePhotoSelection([file(name, type, 1024)], adapterFor());
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.photos[0].file.type).toBe('image/jpeg');
+    }
+    expect(PHOTO_INPUT_ACCEPT).toContain('.heic'); expect(PHOTO_INPUT_ACCEPT).toContain('.heif');
+    expect((await optimizePhotoSelection([file('file.bin', '', 1024)], adapterFor())).ok).toBe(false);
+  });
+  it('keeps small library exports at native size and handles encode errors recoverably', async () => {
+    const result = await optimizePhotoSelection([file('small.jpg', 'image/jpeg', 1024)], adapterFor({ width: 600, height: 800 }));
+    expect(result.ok).toBe(true);
+    if (result.ok) { expect(result.photos[0].width).toBe(600); expect(result.photos[0].height).toBe(800); }
+    expect(getOptimizationTargets(0, 0)).toEqual([]);
+    const adapter = adapterFor(); adapter.encode = async () => { throw new Error('canvas unavailable'); };
+    expect(await optimizePhotoSelection([file('photo.jpg', 'image/jpeg', 1024)], adapter)).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.failed });
+  });
+  function imageElement(fails = false) {
+    vi.stubGlobal('Image', class {
+      naturalWidth = 600; naturalHeight = 800;
+      onload = () => {}; onerror = () => {};
+      set src(value: string) { if (value) queueMicrotask(() => fails ? this.onerror() : this.onload()); }
+    });
+  }
+  it('tries the orientation-aware image element when Safari ImageBitmap rejects the file', async () => {
+    vi.stubGlobal('createImageBitmap', vi.fn().mockRejectedValue(new Error('unsupported')));
+    imageElement();
+    const decoded = await browserPhotoOptimizerAdapter.decode(file('photo.heic', 'image/heic', 32));
+    expect(decoded.width).toBe(600); expect(decoded.height).toBe(800); decoded.close?.();
+    expect(createImageBitmap).toHaveBeenCalledWith(expect.any(Blob), { imageOrientation: 'from-image' });
+  });
+  it('uses the lazy local HEIC fallback only after both native paths fail and does not rotate decoded pixels twice', async () => {
+    const { heicTo } = await import('heic-to/csp');
+    const png = new Blob(['synthetic'], { type: 'image/png' });
+    vi.mocked(heicTo).mockResolvedValue(png);
+    const bitmap = { width: 600, height: 800, close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', vi.fn().mockRejectedValueOnce(new Error('unsupported')).mockResolvedValueOnce(bitmap));
+    imageElement(true);
+    const decoded = await browserPhotoOptimizerAdapter.decode(file('photo.HEIF', '', 32));
+    expect(heicTo).toHaveBeenCalledWith({ blob: expect.any(File), type: 'image/png' });
+    expect(createImageBitmap).toHaveBeenLastCalledWith(png, { imageOrientation: 'from-image' });
+    expect(decoded.width).toBe(600); expect(decoded.height).toBe(800); decoded.close?.();
+    expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+  it('returns a recoverable HEIC message when both native decoding and conversion fail', async () => {
+    const { heicTo } = await import('heic-to/csp');
+    vi.mocked(heicTo).mockRejectedValue(new Error('invalid HEIF'));
+    vi.stubGlobal('createImageBitmap', vi.fn().mockRejectedValue(new Error('unsupported'))); imageElement(true);
+    expect(await optimizePhotoSelection([file('photo.heic', 'image/heic', 32)])).toEqual({ ok: false, error: OPTIMIZATION_MESSAGES.unsupportedHeic });
   });
 });

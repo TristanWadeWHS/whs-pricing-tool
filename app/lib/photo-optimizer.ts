@@ -9,8 +9,10 @@ export const OPTIMIZATION_MESSAGES = {
   optimizing: 'Optimizing photos for analysis...',
   ready: 'Photos optimized and ready.',
   failed: "We couldn't optimize one or more photos. Please try fewer photos or choose another image.",
-  unsupportedHeic: 'This HEIC photo could not be processed in this browser. Please change your iPhone Camera Format to Most Compatible or upload a JPEG.'
+  unsupportedHeic: 'This HEIC/HEIF photo could not be prepared. Your other photos are retained. Retry after the original finishes downloading from iCloud, or choose a JPEG copy.'
 };
+
+export const PHOTO_INPUT_ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
 
 export const PHOTO_OPTIMIZATION_LIMITS = {
   maxPhotos: MAX_ESTIMATE_PHOTOS,
@@ -34,6 +36,12 @@ const SUPPORTED_INPUT_TYPES = new Set([
 ]);
 
 const HEIC_TYPES = new Set(['image/heic', 'image/heif']);
+
+function inputType(file: File) {
+  if (file.type && file.type !== 'application/octet-stream') return file.type.toLowerCase();
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' } as Record<string, string>)[extension ?? ''] ?? '';
+}
 
 export type OptimizedPhoto = {
   originalName: string;
@@ -132,8 +140,8 @@ async function optimizeWithBudget(files: File[], budgetBytes: number, adapter: P
 }
 
 async function optimizePhotoFile(file: File, budgetBytes: number, adapter: PhotoOptimizerAdapter): Promise<OptimizePhotoFileResult> {
-  if (!SUPPORTED_INPUT_TYPES.has(file.type)) {
-    return { ok: false as const, error: 'Photos must be JPEG, PNG, WebP, or browser-supported HEIC images.' };
+  if (!SUPPORTED_INPUT_TYPES.has(inputType(file))) {
+    return { ok: false as const, error: 'Photos must be JPEG, PNG, WebP, HEIC, or HEIF images.' };
   }
 
   if (file.size > PHOTO_OPTIMIZATION_LIMITS.maxOriginalBytes) {
@@ -144,7 +152,7 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
   try {
     decoded = await adapter.decode(file);
   } catch {
-    return { ok: false as const, error: HEIC_TYPES.has(file.type) ? OPTIMIZATION_MESSAGES.unsupportedHeic : OPTIMIZATION_MESSAGES.failed };
+    return { ok: false as const, error: HEIC_TYPES.has(inputType(file)) ? OPTIMIZATION_MESSAGES.unsupportedHeic : OPTIMIZATION_MESSAGES.failed };
   }
 
   try {
@@ -169,6 +177,8 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
         };
       }
     }
+  } catch {
+    return { ok: false as const, error: OPTIMIZATION_MESSAGES.failed };
   } finally {
     decoded.close?.();
   }
@@ -178,12 +188,15 @@ async function optimizePhotoFile(file: File, budgetBytes: number, adapter: Photo
 
 export function getOptimizationTargets(width: number, height: number) {
   const longEdge = Math.max(width, height);
+  if (!Number.isFinite(longEdge) || width <= 0 || height <= 0) return [];
   const baseScale = Math.min(1, PHOTO_OPTIMIZATION_LIMITS.initialLongEdge / longEdge);
   const targets = [];
   let scaledLongEdge = Math.round(longEdge * baseScale);
   let additionalPasses = 0;
 
-  while (scaledLongEdge >= PHOTO_OPTIMIZATION_LIMITS.minimumLongEdge) {
+  // Small library exports should keep their native size, not fail or be upscaled.
+  const minimumLongEdge = Math.min(longEdge, PHOTO_OPTIMIZATION_LIMITS.minimumLongEdge);
+  while (scaledLongEdge >= minimumLongEdge) {
     const scale = scaledLongEdge / longEdge;
     const targetWidth = Math.max(1, Math.round(width * scale));
     const targetHeight = Math.max(1, Math.round(height * scale));
@@ -225,22 +238,16 @@ function sumOptimizedBytes(photos: OptimizedPhoto[]) {
 
 export const browserPhotoOptimizerAdapter: PhotoOptimizerAdapter = {
   async decode(file) {
-    if ('createImageBitmap' in window) {
-      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      return {
-        width: bitmap.width,
-        height: bitmap.height,
-        source: bitmap,
-        close: () => bitmap.close()
-      };
+    try {
+      return await decodeNativePhoto(file);
+    } catch {
+      if (!HEIC_TYPES.has(inputType(file))) throw new Error('Image decode failed.');
     }
-
-    const image = await decodeWithImageElement(file);
-    return {
-      width: image.naturalWidth,
-      height: image.naturalHeight,
-      source: image
-    };
+    // Lazy, local-only libheif fallback. Its decoder applies HEIF transforms;
+    // PNG pixels contain that orientation already, so do not rotate again.
+    const { heicTo } = await import('heic-to/csp');
+    const converted = await heicTo({ blob: file, type: 'image/png' });
+    return decodeNativePhoto(converted);
   },
 
   async encode(image, target) {
@@ -253,20 +260,34 @@ export const browserPhotoOptimizerAdapter: PhotoOptimizerAdapter = {
 
     context.drawImage(image.source, 0, 0, target.width, target.height);
     return new Promise((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', target.quality);
+      canvas.toBlob((blob) => { canvas.width = 1; canvas.height = 1; resolve(blob); }, 'image/jpeg', target.quality);
     });
   }
 };
 
-function decodeWithImageElement(file: File) {
+async function decodeNativePhoto(file: Blob): Promise<DecodedImage> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      return { width: bitmap.width, height: bitmap.height, source: bitmap, close: () => bitmap.close() };
+    } catch { /* Safari may decode a library image through <img> but not ImageBitmap. */ }
+  }
+  const image = await decodeWithImageElement(file);
+  return { width: image.naturalWidth, height: image.naturalHeight, source: image, close: () => { image.src = ''; } };
+}
+
+function decodeWithImageElement(file: Blob) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
+    const timeout = setTimeout(() => { URL.revokeObjectURL(url); image.src = ''; reject(new Error('Image decode timed out.')); }, 30_000);
     image.onload = () => {
+      clearTimeout(timeout);
       URL.revokeObjectURL(url);
       resolve(image);
     };
     image.onerror = () => {
+      clearTimeout(timeout);
       URL.revokeObjectURL(url);
       reject(new Error('Image decode failed.'));
     };

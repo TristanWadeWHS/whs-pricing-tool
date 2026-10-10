@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "googleapis": "174.0.1",
+    "heic-to": "1.6.5",
     "next": "16.3.1",
     "openai": "6.39.0",
     "react": "19.2.6",

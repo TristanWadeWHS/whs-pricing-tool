@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { SERVICE_CHOICES, type Choice, type ConversationResult } from './lib/conversation-schema';
-import { optimizePhotoSelection } from './lib/photo-optimizer';
+import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT } from './lib/photo-optimizer';
 import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
 
@@ -140,7 +140,7 @@ export default function Conversation() {
       {!!photos.length && <details><summary>{photos.length}/10 photos in this conversation</summary><div className={styles.photos}>{photos.map((p, i) => <figure key={p.hash}><img src={p.url} alt={`Photo ${i + 1}, ${p.room}`} width="68" height="68" /><figcaption>{i + 1} · {p.room}</figcaption></figure>)}</div></details>}
       {replyTo && <div className={styles.reply}><span>Replying to: {result?.questions.find((q) => q.id === replyTo)?.text}</span><button type="button" disabled={busy} onClick={() => setReplyTo('')}>New topic</button></div>}
       <form onSubmit={(e) => { e.preventDefault(); send(); }}><label className={styles.srOnly} htmlFor="message">Message Winston</label><textarea ref={composer} id="message" maxLength={replyTo ? 400 : 1000} disabled={busy} placeholder={replyTo ? 'Your answer, or "Not sure"...' : 'Tell Winston what needs to go...'} value={text} onChange={(e) => setText(e.target.value)} />
-        <div className={styles.tools}><label className={styles.attach} title="Attach photos">+ Photos<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={busy || optimizing} onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void addPhotos(files); }} /></label>
+        <div className={styles.tools}><label className={styles.attach} title="Choose photos from your library">+ Photos<input type="file" aria-label="Choose photos from your library" accept={PHOTO_INPUT_ACCEPT} multiple disabled={busy || optimizing} onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void addPhotos(files); }} /></label>
           <label className={styles.room}>Room / batch<input aria-label="Room or photo batch" maxLength={60} value={room} placeholder="e.g. Garage" disabled={busy || optimizing} onChange={(e) => setRoom(e.target.value)} /></label>
           <button type="submit" aria-label="Send message" disabled={busy || optimizing || (!text.trim() && photos.length === sentPhotos.current)}>Send <span aria-hidden="true">↑</span></button></div>
       </form>
