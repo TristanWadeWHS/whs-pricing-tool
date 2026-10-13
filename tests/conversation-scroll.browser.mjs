@@ -22,9 +22,9 @@ try {
       const response = await new Promise((resolve) => requests.push(resolve));
       await route.fulfill(response).catch(() => {}); // Reset can abort a held synthetic response.
     });
-    await page.goto(url);
+    await page.goto(`${url}/owner`);
     const log = page.getByRole('log'), composer = page.getByLabel('Message Winston', { exact: true });
-    const loading = page.getByRole('status').filter({ hasText: 'Winston is preparing your response' });
+    const loading = page.getByRole('status').filter({ hasText: 'Winston is getting ready to help' });
     const position = () => log.evaluate((e) => e.scrollTop);
     assert.equal(await position(), 0);
     assert.equal(await loading.count(), 0);

@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { bookingDetailsSchema, futurePreference, type BookingDetails, type BookingOutcome, type CustomerType, type PromotionReply } from './lib/booking-schema';
 import { moneyInterval } from './lib/promotion';
+import { customerEstimate } from './lib/conversation-presentation';
 import styles from './conversation.module.css';
 
-type Props = { token: string; scope: string[]; onMessage: (role: 'user' | 'winston', text: string) => void };
+type Props = { token: string; scope: string[]; customerView?: boolean; onMessage: (role: 'user' | 'winston', text: string) => void };
 const emptyDetails: BookingDetails = { name: '', address: '', date: '', time: '', contactMethod: 'email', email: '', phone: '' };
 
-export default function BookingFollowUp({ token, scope, onMessage }: Props) {
+export default function BookingFollowUp({ token, scope, customerView = false, onMessage }: Props) {
   const [offer, setOffer] = useState<PromotionReply | null>(null);
   const [details, setDetails] = useState(emptyDetails);
   const [review, setReview] = useState<BookingDetails | null>(null);
@@ -52,7 +53,7 @@ export default function BookingFollowUp({ token, scope, onMessage }: Props) {
     setReview(parsed.data); setConfirmed(false); setOutcome(null); requestId.current = crypto.randomUUID();
   }
   async function book() {
-    if (lock.current || !review || !confirmed || !offer?.bookingEnabled) return;
+    if (customerView || lock.current || !review || !confirmed || !offer?.bookingEnabled) return;
     lock.current = true; setBusy(true); setError(''); setAttempted(true);
     try {
       const data = await request({ action: 'book', token, customerType: offer.customerType, details: review, confirmed: true, requestId: requestId.current }) as BookingOutcome;
@@ -62,26 +63,27 @@ export default function BookingFollowUp({ token, scope, onMessage }: Props) {
   }
   const change = (key: keyof BookingDetails, value: string) => setDetails((old) => ({ ...old, [key]: value }));
   return <section className={styles.followUp} aria-label="Customer follow-up">
-    <h2>A little thank-you from our team</h2>
+    <h2>{customerView ? 'New here or welcome back?' : 'A little thank-you from our team'}</h2>
     <p>Are you a new or returning Wade Home Services customer?</p>
     <div className={styles.services}>
       <button type="button" disabled={busy || mustKeepRequest} aria-pressed={offer?.customerType === 'new'} onClick={() => void choose('new')}>New customer</button>
       <button type="button" disabled={busy || mustKeepRequest} aria-pressed={offer?.customerType === 'returning'} onClick={() => void choose('returning')}>Returning customer</button>
     </div>
-    {busy && <p role="status">Thanks! We&apos;re checking this step. Please wait.</p>}
+    {customerView && <p>Selecting your customer type checks existing promotion eligibility. It does not book an appointment.</p>}
+    {busy && <p role="status" className={styles.busy}><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span><span>Thanks! We&apos;re checking this step. Please wait.</span></p>}
     {error && <p role="alert">{error}</p>}
     {offer && <>
       <section aria-label="Temporary promotion" className={styles.promotion}>
         <h3>Temporary {offer.promotion.rate * 100}% promotion</h3>
         <p>{offer.promotion.application === 'illustration' ? 'Illustration only, pending staff confirmation of eligibility and minimums.' : 'Provisional promotion; staff review still required.'}</p>
-        <dl><dt>Original {offer.promotion.application === 'illustration' ? 'volume baseline' : 'eligible estimate'}</dt><dd>{moneyInterval(offer.promotion.original)}</dd>
-          <dt>Discount {offer.promotion.application === 'illustration' ? '(illustrative)' : ''}</dt><dd>{moneyInterval(offer.promotion.discount)}</dd>
-          <dt>Discounted {offer.promotion.application === 'illustration' ? 'volume baseline (illustrative)' : 'total'}</dt><dd>{moneyInterval(offer.promotion.total)}</dd></dl>
+        <dl><dt>Original {customerView ? 'estimate' : offer.promotion.application === 'illustration' ? 'volume baseline' : 'eligible estimate'}</dt><dd>{customerView ? customerEstimate(offer.promotion.original) : moneyInterval(offer.promotion.original)}</dd>
+          <dt>Discount {offer.promotion.application === 'illustration' ? '(illustrative)' : ''}</dt><dd>{customerView ? customerEstimate(offer.promotion.discount) : moneyInterval(offer.promotion.discount)}</dd>
+          <dt>Discounted {customerView ? 'estimate (subject to confirmation)' : offer.promotion.application === 'illustration' ? 'volume baseline (illustrative)' : 'total'}</dt><dd>{customerView ? customerEstimate(offer.promotion.total) : moneyInterval(offer.promotion.total)}</dd></dl>
         <ul>{offer.promotion.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
         <p>Not a final price or an approved quote. Scope, access, disposal and exceptional work remain subject to staff review.</p>
       </section>
-      {!offer.bookingEnabled && <p role="status">{offer.bookingNotice} Details below stay in this tab and are not submitted while booking is disabled.</p>}
-      {!review ? <form onSubmit={prepareReview} aria-label="Booking preferences">
+      {!customerView && !offer.bookingEnabled && <p role="status">{offer.bookingNotice} Details below stay in this tab and are not submitted while booking is disabled.</p>}
+      {!customerView && (!review ? <form onSubmit={prepareReview} aria-label="Booking preferences">
         <h3>Preferred service details</h3>
         <fieldset disabled={busy}>
           <label htmlFor="booking-name">Customer name</label><input id="booking-name" autoComplete="name" maxLength={100} required value={details.name} onChange={(e) => change('name', e.target.value)} />
@@ -113,7 +115,7 @@ export default function BookingFollowUp({ token, scope, onMessage }: Props) {
           {outcome.status === 'booked' && <><p>Business notification: {outcome.businessNotification === 'sent' ? 'sent' : outcome.businessNotification === 'failed' ? 'delivery failed; staff follow-up needed' : 'not configured'}.</p>
             {(outcome.customerNotification === 'failed' || outcome.businessNotification === 'failed') && <button type="button" disabled={busy} onClick={() => void book()}>Retry confirmation</button>}</>}
         </div>}
-      </section>}
+      </section>)}
     </>}
   </section>;
 }
