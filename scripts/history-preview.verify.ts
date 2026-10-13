@@ -19,6 +19,9 @@ import { GET as photo } from '../app/api/estimate-history/photo/route';
 import { proxy } from '../proxy';
 import { sampleAnalysis } from '../tests/helpers';
 import { photoPath } from '../app/lib/estimate-photos';
+import * as photoHandlers from '../app/lib/estimate-photos';
+import * as stateHandlers from '../app/lib/conversation-state';
+import { EstimateStore } from '../app/lib/estimate-store';
 import type { ConversationModel, ConversationResult } from '../app/lib/conversation-schema';
 
 it('explicit authorized Preview storage setup and isolated synthetic verification',async()=>{
@@ -70,6 +73,16 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
       const denied=await fetch(metadataHead.url,{redirect:'manual'});assert([401,403,404].includes(denied.status));
     }
     console.log('PRICER_VERIFY blob=private-put-head-get-pass oidc=pass anonymous-read=denied originals=2');
+    const diagnostic=(label:string,error:unknown)=>{
+      const code=error && typeof error==='object' && 'code' in error ? String(error.code) : '';
+      console.log(`PRICER_VERIFY failure_component=${label} sqlstate=${/^[0-9A-Z]{5}$/.test(code)?code:'none'}`);
+    };
+    const realFinish=EstimateStore.prototype.finish;
+    vi.spyOn(EstimateStore.prototype,'finish').mockImplementation(async function(...args){try{return await realFinish.apply(this,args);}catch(error){diagnostic('save_revision',error);throw error;}});
+    const realArchive=photoHandlers.archiveAnalysisPhotos;
+    vi.spyOn(photoHandlers,'archiveAnalysisPhotos').mockImplementation(async(...args)=>{try{return await realArchive(...args);}catch(error){diagnostic('archive_analysis_photos',error);throw error;}});
+    const realReconcile=stateHandlers.finishConversation;
+    vi.spyOn(stateHandlers,'finishConversation').mockImplementation((...args)=>{try{return realReconcile(...args);}catch(error){diagnostic('reconcile',error);throw error;}});
     const evidence='Two closed synthetic boxes have contents that affect flattening.';
     const model:ConversationModel={overlapUnresolved:false,items:[{id:'i_boxes',label:'Synthetic boxes',room:'Synthetic',photoRefs:[1,2],duplicateOf:null}],analysis:sampleAnalysis({observedFacts:[evidence]}),pricedItemIds:[],questions:[],conflicts:[],scopeChanges:[],loadedGroups:[]};
     const base={message:'Synthetic verification only',room:'Synthetic',services:['mixed junk'],photoRooms:['Synthetic','Synthetic'],actions:[] as {id:string;choice:string}[],answers:[] as {id:string;text:string;notSure:boolean}[]};
