@@ -44,6 +44,7 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     stage='session';
     const created=await session(new Request(origin+'/api/estimate-session',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({id})}));
     assert.equal(created.status,200);
+    console.log(`PRICER_VERIFY synthetic_estimate=${id}`);
     const cookie=created.headers.get('set-cookie')!.split(';')[0];
     const headers={origin,cookie,...staff};
     const buffers:Buffer[]=[];
@@ -76,6 +77,7 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
       const form=new FormData();form.set('submission',JSON.stringify(submission));form.set('history',JSON.stringify({estimateId:id,requestId,revision}));if(token)form.set('token',token);
       for(const bytes of buffers)form.append('photos',new File([Uint8Array.from(bytes)],'synthetic.png',{type:'image/png'}));
       const response=await conversation(new Request(origin+'/api/conversation',{method:'POST',headers,body:form}));
+      console.log(`PRICER_VERIFY synthetic_turn=${revision+1} http=${response.status}`);
       assert.equal(response.status,200);
       return await response.json() as ConversationResult;
     }
@@ -84,7 +86,9 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     stage='clarification_revision';
     const scoped={...base,actions:[{id:'i_boxes',choice:'included'}]};
     parse.mockResolvedValue({output_parsed:{...model,pricedItemIds:['i_boxes'],questions:[{itemId:'i_boxes',topic:'contents',text:'Are the boxes empty?',evidence,photoRef:1,impact:'volume',volumeEffect:'Empty boxes flatten and reduce packed volume.'}],loadedGroups:[{itemIds:['i_boxes'],photoRefs:[1,2],quantityDescription:'Two synthetic boxes',evidence,lowCubicYards:1,highCubicYards:2,packingAssumptions:['Keep closed boxes intact.'],uncertainty:'Contents affect flattening.',handlingConcern:null,answerIds:[]}]}});
-    const second=await turn(1,scoped,randomUUID(),first.token);assert.equal(second.baseline,null);assert.equal(second.questions.length,1);
+    const second=await turn(1,scoped,randomUUID(),first.token);
+    console.log(`PRICER_VERIFY scope_questions=${second.questions.length} price_withheld=${second.baseline===null}`);
+    stage='clarification_assertions';assert.equal(second.baseline,null);assert.equal(second.questions.length,1);
     const answered={...base,answers:[{id:second.questions[0].id,text:'Lightweight contents; keep boxes intact.',notSure:false}]};
     const requestId=randomUUID();
     parse.mockResolvedValue({output_parsed:{...model,pricedItemIds:['i_boxes'],loadedGroups:[{itemIds:['i_boxes'],photoRefs:[1,2],quantityDescription:'Two synthetic boxes',evidence,lowCubicYards:1,highCubicYards:2,packingAssumptions:['Keep confirmed filled boxes intact.'],uncertainty:'Visual size range.',handlingConcern:null,answerIds:[second.questions[0].id]}]}});
