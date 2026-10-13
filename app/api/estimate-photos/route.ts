@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
+import { issueSignedToken, presignUrl } from '@vercel/blob';
 import { z } from 'zod';
 import { historyConfigured, visitor, requireSameOrigin, smallJson } from '../../lib/estimate-access';
 import { EstimateStore } from '../../lib/estimate-store';
@@ -24,8 +24,11 @@ export async function POST(req:Request) {
     try { await confirmPhoto(store,data.estimateId,row); return NextResponse.json({complete:true},{headers:{'Cache-Control':'no-store'}}); } catch { /* An incomplete upload may be retried. */ }
     const allowed=await store.sql('UPDATE pricer_photos SET tokens=tokens+1,updated_at=now() WHERE estimate_id=$1 AND photo_id=$2 AND variant=$3 AND tokens<5 RETURNING photo_id',[data.estimateId,data.photoId,'original']);
     if(!allowed.length)throw new Error('Upload retry limit.');
-    const token=await generateClientTokenFromReadWriteToken({token:process.env.BLOB_READ_WRITE_TOKEN!,pathname:row.pathname,
-      allowedContentTypes:[data.mime],maximumSizeInBytes:data.bytes,validUntil:Date.now()+5*60_000,addRandomSuffix:false,allowOverwrite:false});
-    return NextResponse.json({pathname:row.pathname,token},{headers:{'Cache-Control':'no-store'}});
+    const constraints={pathname:row.pathname,allowedContentTypes:[data.mime],maximumSizeInBytes:data.bytes,validUntil:Date.now()+5*60_000};
+    // SDK resolves the integration's OIDC identity (or an explicitly configured RW token).
+    // Keep delegation/signing material server-side; return only one constrained PUT URL.
+    const delegation=await issueSignedToken({...constraints,operations:['put']});
+    const {presignedUrl}=await presignUrl(delegation,{...constraints,operation:'put',access:'private',addRandomSuffix:false,allowOverwrite:false});
+    return NextResponse.json({presignedUrl},{headers:{'Cache-Control':'no-store'}});
   }catch{return NextResponse.json({error:`Original photo could not be saved privately. Retry the same upload. Accepted originals: ${ORIGINAL_TYPES.join(', ')}; maximum 25 MiB. Your conversation is retained.`},{status:503,headers:{'Cache-Control':'no-store'}});}
 }

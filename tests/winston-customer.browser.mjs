@@ -17,9 +17,14 @@ try {
     const page = await context.newPage(); page.setDefaultTimeout(30000); page.setDefaultNavigationTimeout(90000);
     const errors = [], submissions = [], pending = [], promotions = [];
     const archiveCalls=[];
+    const originalUploads=[];
     if(process.env.ARCHIVE_SMOKE==='1') {
       await page.route('**/api/estimate-session',route=>{archiveCalls.push(route.request().postDataJSON());return route.fulfill({json:{enabled:true}});});
-      await page.route('**/api/estimate-photos',route=>{archiveCalls.push(route.request().postDataJSON());return route.fulfill({json:{complete:true}});});
+      await page.route('**/api/estimate-photos',route=>{const data=route.request().postDataJSON();archiveCalls.push(data);return route.fulfill({json:data.action==='authorize'?{presignedUrl:`https://synthetic-blob.invalid/${data.photoId}`}:{complete:true}});});
+      await page.route('https://synthetic-blob.invalid/**',route=>{
+        if(route.request().method()==='PUT')originalUploads.push({method:'PUT',bytes:route.request().postDataBuffer()?.length,type:route.request().headers()['content-type']});
+        return route.fulfill({status:200,body:'',headers:{'Access-Control-Allow-Origin':url,'Access-Control-Allow-Methods':'PUT, OPTIONS','Access-Control-Allow-Headers':'Content-Type'}});
+      });
     }
     page.on('pageerror', (e) => errors.push(e.message));
     await context.route('**/*', (route) => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
@@ -164,6 +169,8 @@ try {
     assert.deepEqual(errors, []);
     if(process.env.ARCHIVE_SMOKE==='1') {
       assert(archiveCalls.some(c=>c.ordinal===3&&c.action==='authorize'));
+      assert.equal(originalUploads.length,3);
+      assert(originalUploads.every(p=>p.method==='PUT'&&p.bytes>0&&p.type==='image/jpeg'));
       assert(submissions.every(s=>s.history?.estimateId&&s.history?.requestId));
       assert.notEqual(submissions[0].history.estimateId,submissions.at(-1).history.estimateId,'Start Over creates a new job, not a new visitor');
       const id='11111111-1111-4111-8111-111111111111';

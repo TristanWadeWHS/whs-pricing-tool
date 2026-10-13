@@ -1,4 +1,3 @@
-import { put } from '@vercel/blob/client';
 type Photo = { original:File; archiveId:string };
 async function jsonPost(path:string,data:unknown,signal:AbortSignal) {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal});
@@ -18,7 +17,11 @@ export class ArchiveSession {
       const metadata={estimateId:this.id,photoId:photo.archiveId,ordinal:index+1,mime,bytes:photo.original.size,hash};
       const upload=await jsonPost('/api/estimate-photos',{...metadata,action:'authorize'},signal);
       if(!upload.complete) {
-        try { await put(upload.pathname,photo.original,{access:'private',token:upload.token,contentType:mime,abortSignal:signal}); }
+        try {
+          const response=await fetch(upload.presignedUrl,{method:'PUT',headers:{'Content-Type':mime!},body:photo.original,
+            signal,credentials:'omit',redirect:'error',referrerPolicy:'no-referrer'});
+          if(!response.ok)throw new Error('Upload rejected.');
+        }
         catch { throw new Error('Original photo upload did not complete. Retry; your conversation and selected photos are retained.'); }
         await jsonPost('/api/estimate-photos',{...metadata,action:'complete'},signal);
       }

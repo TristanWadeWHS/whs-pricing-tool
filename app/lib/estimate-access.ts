@@ -17,8 +17,10 @@ export function boundedSetting(name: string, fallback: number, max: number) {
   return n;
 }
 export function historyConfigured() {
+  // Configuration presence is not an access check. SDK calls still authorize every operation.
+  const blobCredentials=!!process.env.BLOB_READ_WRITE_TOKEN || (!!process.env.BLOB_STORE_ID && !!process.env.VERCEL_OIDC_TOKEN);
   return historyEnabled() && !!process.env.PRICER_DATABASE_URL && (process.env.PRICER_VISITOR_SECRET?.length ?? 0)>=32
-    && !!process.env.BLOB_READ_WRITE_TOKEN && process.env.PRICER_BLOB_PRIVATE_CONFIRMED === 'true';
+    && blobCredentials && process.env.PRICER_BLOB_PRIVATE_CONFIRMED === 'true';
 }
 export function cookieValue(req: Request, name: string) {
   return req.headers.get('cookie')?.split(';').map((s) => s.trim()).find((s) => s.startsWith(`${name}=`))?.slice(name.length + 1);

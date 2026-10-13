@@ -7,7 +7,70 @@ Stacked on draft PR #21, `codex/winston-benchmark-presentation`, exact baseline
 Snapshot: `pre-estimate-history-snapshot-1bc6615`.
 Production remains `90ae1c249069a9f5ff05018c48271403dfad33b2`, deployment
 `dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H`, https://whs-pricing-tool-p8kg.vercel.app.
-No public launch, migrations, resources, live photos, or Production changes are performed here.
+No public launch, live migrations, real photos, or Production changes are performed here.
+
+### Preview connection follow-up (2026-10-13)
+
+Preserved prior candidate `8c1cccece6a2206b63de3a198954c8bb6c456ddd` with annotated tag
+`pre-preview-storage-snapshot-8c1ccce`. PR #22 remains draft on the same branch.
+Tristan reports creating Neon `WHS-Pricer-History`, connecting private Blob
+`wade-home-services-photos`, and confirming the shared internal login is staff-only.
+
+Verified environment metadata differs from the reported setup:
+- `PRICER_DATABASE_URL` is absent. Case-sensitive `Pricer_DATABASE_URL` exists with the
+  Neon integration variables, assigned to **both Preview and Production**. No existing
+  assignment was changed, and the code does not silently alias it or assume its target.
+- `BLOB_STORE_ID` and `BLOB_WEBHOOK_PUBLIC_KEY` are Preview-only. No static Blob token.
+- `PRICER_BLOB_PRIVATE_CONFIRMED`, `PRICER_DAILY_LIMIT_ENABLED`,
+  `PRICER_PUBLIC_CUSTOMERS_ENABLED`, `PRICER_INTERNAL_AUTH_IS_STAFF` are Preview-only.
+  Their reported true/false values come from Tristan; sensitive values were not printed.
+- `PRICER_VISITOR_SECRET` and `PRICER_HISTORY_ENABLED` are absent.
+
+The connector's store-metadata request returned `404: not_found / Blob not found` for
+the configured store ID in the pricer team. This does not establish whether deployed
+OIDC has access. The local Vercel CLI is unavailable. No alternate access path was
+attempted after that tooling failure. Database identity/connectivity/migration state and
+live Blob reads/writes are **not verified**. No SQL migration or synthetic live upload
+was run, no migration was falsely recorded, and history remains disabled.
+
+OIDC-compatible code now uses installed `@vercel/blob@2.8.0` `issueSignedToken` and
+`presignUrl`: exact photo path, PUT only, private access, five-minute expiry, MIME/size
+constraints and no overwrite. Browser receives only the scoped URL; signing material
+stays server-side. Receipt validation still uses authenticated `head`. A webhook public
+key verifies callbacks only; this flow uses explicit authenticated receipts, not callbacks.
+Configuration checks require OIDC-token presence plus store ID (or an explicit static
+token); successful SDK authorization is still required on every operation. Presence
+alone is not proof of access. No dependency upgrade was needed.
+
+Official references:
+- [Blob authentication](https://vercel.com/docs/vercel-blob/using-blob-sdk#authentication)
+- [Signed upload URLs](https://vercel.com/docs/vercel-blob/vercel-signed-urls)
+
+OIDC follow-up verification: 22/22 affected tests and typecheck passed. One desktop/mobile
+emulation smoke pass exercised real browser optimization and PUT construction with
+synthetic files and intercepted storage endpoints, plus mocked analysis/history,
+clarification, retry/reset and protected endpoint denial. No native iPhone or live
+database/Blob end-to-end success is claimed. Prior pricing tests were reused unchanged.
+
+Remaining authorized setup before activation:
+1. Confirm Neon resource/branch/database identity in its dashboard. Provide that dedicated
+   connection as exact uppercase `PRICER_DATABASE_URL`, **Preview only**. Separately review
+   the unexpected Production assignments; this PR does not modify them.
+2. In an authorized environment, inspect schema state without querying customer rows.
+   If empty, apply `db/estimate-history.sql` in a single transaction with stop-on-error;
+   record the migration version, SHA-256 of the file, timestamp and database identity in
+   the deployment/migration ledger. If any `pricer_*` object already exists, stop and
+   reconcile migration history rather than rerunning/resetting. No DROP/overwrite.
+3. Resolve the Blob metadata/access error with the existing project connection. Verify
+   deployed OIDC can put/head/get an isolated synthetic `pricer-estimates/v1/` object
+   privately; never list website objects or run cleanup.
+4. A secret-safe authenticated local configuration path is unavailable here. Use a
+   password manager/CSPRNG to generate an independent secret of at least 32 random bytes
+   and set Preview-only `PRICER_VISITOR_SECRET` as a Vercel Secret. Do not paste it into
+   chat, logs or Git; preserve it across future deployments.
+5. Only after steps 1-4 succeed, set Preview-only `PRICER_HISTORY_ENABLED=true` and
+   redeploy Preview. Keep public mode and shared Preview daily restriction false, and
+   the staff confirmation true. No environment variable was created or changed here.
 
 ## Infrastructure inspected
 
@@ -35,10 +98,11 @@ only after owner review, or a separately approved one); do not silently provisio
    `db/estimate-history.sql` once using an approved migration operator. It is not run
    at application startup. The application role needs table/sequence access and function
    execution, not schema administration. Back up the DB; restrict provider/dashboard access.
-2. Configure `BLOB_READ_WRITE_TOKEN` server-side for an authorized **private** Blob store.
-   Set `PRICER_BLOB_PRIVATE_CONFIRMED=true` only after verification. Website OIDC/store-ID
-   access cannot be presumed shared; this implementation deliberately requires the
-   explicit server binding. Store-wide tokens never go to the client.
+2. Connect an authorized **private** Blob store and verify `BLOB_STORE_ID` plus Vercel
+   runtime `VERCEL_OIDC_TOKEN` can access it. Alternatively use an explicitly authorized
+   server-side `BLOB_READ_WRITE_TOKEN`. Set `PRICER_BLOB_PRIVATE_CONFIRMED=true` only after
+   verification. Store IDs and webhook public keys alone do not authenticate access.
+   Store-wide credentials and delegation signing material never go to the client.
 3. Configure a random, independent `PRICER_VISITOR_SECRET` of at least 32 characters.
    Keep it stable across deployments; rotation invalidates visitor cookies.
 4. Existing auth is a shared internal credential, not individual roles. Confirm that
@@ -91,8 +155,8 @@ append-only revision records. Customer-type/promotion selections append idempote
 using existing calculations; no booking action/integration is added. Unknown outcome links
 and actual values stay null. This feature never reads history to influence estimates.
 
-Original files go directly to private Blob with a five-minute, exact-path/type/size upload
-token. They never join the analysis multipart request. Original cap matches existing
+Original files go directly to private Blob with a five-minute, exact-path/type/size PUT
+URL. They never join the analysis multipart request. Original cap matches existing
 optimizer: 25 MiB/photo. Existing ten-photo, 3.5 MiB aggregate and per-photo analysis limits
 are unchanged. Ordered original/optimized variants share an immutable photo ID. Original
 content hashes are client-declared, not an independent verification of customer authenticity;
