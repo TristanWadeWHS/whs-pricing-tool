@@ -33,6 +33,7 @@ try {
     const log = page.getByRole('log');
     const composer = page.getByLabel('Message Winston', { exact: true });
     const status = page.locator('footer [role=status]').first();
+    const comparison = page.getByRole('region', { name: 'Local Competitor Pricing', exact: true });
     const position = () => log.evaluate((e) => e.scrollTop);
     async function finish(body, code = 200) {
       assert(pending.length); pending.shift()({ status: code, json: body });
@@ -47,7 +48,14 @@ try {
     assert.equal(await headerLogo.getAttribute('src'), '/wade-home-services-logo.png');
     assert(await headerLogo.evaluate((img) => img.complete && img.naturalWidth > 0));
     assert.equal((await headerLogo.boundingBox()).width, mobile ? 72 : 96);
-    assert((await page.getByAltText('Winston, your removal guide').boundingBox()).width >= 160);
+    assert.equal((await page.getByAltText('Winston, your removal guide').boundingBox()).width, mobile ? 200 : 240);
+    await page.getByText('Junk Removal | Light Demolition | Property Cleanouts', { exact: true }).waitFor();
+    assert.equal(await page.locator('h1 img').getAttribute('src'), '/wade-home-services-logo.png');
+    assert(await page.locator('h1 img').evaluate((img) => img.complete && img.naturalWidth > 0));
+    await page.getByText('You Call, We Haul!', { exact: true }).waitFor();
+    const animationState = () => page.getByAltText('Winston, your removal guide').evaluate((e) => e.getAnimations().map((a) => ({ start: a.startTime, state: a.playState })));
+    const initialAnimation = await animationState();
+    if (mobile) assert.deepEqual(initialAnimation, []);
     assert.equal(await page.getByLabel('Room or photo batch').count(), 0);
     assert.equal(await page.getByRole('link', { name: /Staff estimator/ }).count(), 0);
     assert.equal(await page.getByText('A little less clutter. A little more room.').count(), 0);
@@ -58,6 +66,7 @@ try {
     await page.waitForFunction(() => document.querySelector('textarea').disabled);
     const long = 'Happy to help with junk pickup! ' + 'A synthetic completed response for checking word reveal and scrolling. '.repeat(30);
     await finish(result({ message: long }));
+    assert.deepEqual((await animationState()).map((a) => a.start), initialAnimation.map((a) => a.start), 'Opening does not replay');
     assert.deepEqual(submissions[0].data.services, ['mixed junk']);
     const response = page.locator('[data-speaker=winston]').last();
     const offset = await response.evaluate((e) => e.getBoundingClientRect().top - e.closest('[role=log]').getBoundingClientRect().top);
@@ -85,6 +94,7 @@ try {
     await page.getByText('Winston is looking everything over. One moment.', { exact: true }).waitFor();
     assert.equal(await status.locator('i').count(), 3);
     assert.equal(await page.getByRole('heading', { name: '$316', exact: true }).count(), 0);
+    assert.equal(await comparison.count(), 0);
     await finish(result({ items: [{ ...item, choice: 'unresolved' }], message: 'Should we include the boards?' }));
     assert.equal(submissions.at(-1).files, 3); assert.deepEqual(submissions.at(-1).data.photoRooms, ['General', 'General', 'General']);
     await page.locator('#scope-i_boards').selectOption('included');
@@ -93,6 +103,7 @@ try {
     const question = { id: 'i_boards:dismantling', itemId: 'i_boards', topic: 'dismantling', text: 'Are these boards attached?', photoRef: 1, evidence: 'Visible fasteners.' };
     await finish(result({ items: [item], questions: [question], baseline, message: 'One scope detail remains.' }));
     assert.equal(await page.getByRole('heading', { name: '$316', exact: true }).count(), 0);
+    assert.equal(await comparison.count(), 0, 'No benchmark or benchmark rate during required clarification');
     await page.getByLabel('Are these boards attached?', { exact: true }).fill('No');
     await page.getByRole('button', { name: 'Send answers', exact: true }).click();
     await page.getByText("Got it. I'm reviewing the scope details and getting you a precise price.", { exact: true }).waitFor();
@@ -101,16 +112,30 @@ try {
     await page.getByRole('heading', { name: '$316', exact: true }).waitFor();
     assert.equal(await page.getByText('$252\u2013$380', { exact: true }).count(), 0);
     assert.equal(await page.getByText('Loaded percentage / 100 x $550.', { exact: true }).count(), 0);
+    await comparison.getByText('$343.64\u2013$518.18', { exact: true }).waitFor();
+    assert((await comparison.innerText()).includes('Actual competitor pricing varies'));
+    assert(!(await comparison.innerText()).includes('pricing this higher'));
+    assert(await comparison.evaluate((e) => e.previousElementSibling.textContent.includes('$316') && e.nextElementSibling.textContent.includes('New here or welcome back?')));
     assert(await page.getByText('Specific dense material needs handling review.', { exact: true }).isVisible());
     assert.equal(await page.getByRole('heading', { name: 'A little thank-you from our team' }).count(), 0);
     await page.getByRole('heading', { name: '$316', exact: true }).scrollIntoViewIfNeeded();
     await page.waitForTimeout(1900);
     await page.screenshot({ path: join(tmpdir(), `whs-customer-estimate-${mobile ? 'mobile' : 'desktop'}.png`) });
+    await comparison.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(tmpdir(), `whs-customer-comparison-${mobile ? 'mobile' : 'desktop'}.png`) });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     const customer = page.getByRole('button', { name: 'New customer', exact: true });
     await customer.focus(); await page.keyboard.press('Space');
     await page.getByText('$284.40', { exact: true }).waitFor();
     assert.equal(promotions.length, 1); assert.equal(await page.getByRole('form', { name: 'Booking preferences' }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Confirm booking request' }).count(), 0);
+    await send('Synthetic point estimate.');
+    assert.equal(await comparison.count(), 0, 'Hide previous comparison during new request');
+    await finish(result({ baseline: { ...baseline, range: null, low: 330, high: 330, display: '$330' } }));
+    await comparison.getByText('$450', { exact: true }).waitFor();
+    await send('Synthetic unavailable load equivalents.');
+    await finish(result({ baseline: { ...baseline, range: null, equivalents: null, low: 330, high: 330, display: '$330' } }));
+    assert.equal(await comparison.count(), 0);
     await send('Synthetic recoverable error.'); await finish({ error: 'Synthetic request failure.' }, 502);
     await page.getByRole('button', { name: 'Retry last message' }).click();
     await page.waitForFunction(() => document.querySelector('textarea').disabled);
@@ -118,12 +143,14 @@ try {
     assert.equal(await status.locator('i').count(), 0); assert.equal(await position(), 0);
     pending.shift()({ json: final }); await page.waitForTimeout(150);
     assert.equal(await page.getByRole('heading', { name: '$316', exact: true }).count(), 0);
+    assert.equal(await comparison.count(), 0);
 
     await page.goto(`${url}/owner`);
     assert.equal(await page.getByLabel('Room or photo batch').count(), 1);
     assert.equal(await page.getByRole('link', { name: /Staff estimator/ }).count(), 1);
     await send('Synthetic owner estimate.'); await finish(final);
     await page.getByRole('heading', { name: '$252\u2013$380', exact: true }).waitFor();
+    assert.equal(await comparison.count(), 0, 'Owner keeps actual full pricing details, not customer comparison presentation');
     await page.getByText('Assumptions & volume calculation', { exact: true }).click();
     assert(await page.getByText('Loaded percentage / 100 x $550.', { exact: true }).isVisible());
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

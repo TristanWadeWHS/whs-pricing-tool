@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { customerEstimate, customerAssumptions, serviceGreeting, revealWords, PHOTO_PENDING, SCOPE_PENDING } from '../app/lib/conversation-presentation';
+import { customerEstimate, customerAssumptions, localComparison, serviceGreeting, revealWords, PHOTO_PENDING, SCOPE_PENDING } from '../app/lib/conversation-presentation';
 import { volumeBaseline } from '../app/lib/pricing';
 import { calculatePromotion } from '../app/lib/promotion';
 
@@ -18,6 +18,19 @@ describe('customer presentation without pricing changes', () => {
     const promotion = calculatePromotion(original, null, false);
     expect(promotion.rate).toBe(0.1); expect(promotion.application).toBe('illustration');
     expect(customerEstimate(promotion.total)).toBe('$297'); expect(original.low).toBe(330);
+  });
+  it('calculates the supplied benchmark from load equivalents, never WHS dollars', () => {
+    const original = volumeBaseline(60, '');
+    expect(localComparison(original)).toEqual({ low: 450, high: 450, display: '$450' });
+    expect(original.low).toBe(330);
+    expect(localComparison({ equivalents: 0.6, range: [40, 80] })).toEqual({ low: 300, high: 600, display: '$300\u2013$600' });
+    expect(localComparison({ equivalents: 0.6, range: [45.818, 69.091] })).toEqual({ low: 343.64, high: 518.18, display: '$343.64\u2013$518.18' });
+    expect(localComparison({ equivalents: 0.1 })!.low).toBe(75); // No minimum or automatic claim of savings.
+    expect(localComparison({ range: [60, 60] })!.display).toBe('$450');
+  });
+  it('omits missing or invalid load evidence instead of inventing a comparison', () => {
+    for (const load of [null, {}, { equivalents: NaN }, { equivalents: Infinity }, { equivalents: -1 }, { equivalents: 0 }]) expect(localComparison(load)).toBeNull();
+    for (const range of [[80, 40], [NaN, 60], [10, Infinity], [-1, 60], [0, 60]] as [number, number][]) expect(localComparison({ equivalents: 0.6, range })).toBeNull();
   });
   it('offers room guidance only for a cleanout or explicit request', () => {
     const greeting = serviceGreeting(['Junk pickup'], ['A sofa and boxes.']);

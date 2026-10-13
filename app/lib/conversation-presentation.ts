@@ -18,6 +18,22 @@ export function customerEstimate(value: MoneyInterval): string | null {
   return `$${Number.isInteger(midpoint) ? midpoint : midpoint.toFixed(2)}`;
 }
 
+// WHS-supplied indicative benchmark, not a market survey or a pricing input.
+export const LOCAL_COMPARISON_RATE = 750;
+export function localComparison(load: { range?: [number, number] | null; equivalents?: number } | null) {
+  if (!load) return null;
+  // Core range endpoints are percentages of the same nominal trailer, not dollars.
+  const equivalents = load.range == null ? [load.equivalents, load.equivalents] : load.range.map((percent) => percent / 100);
+  const [lower, upper] = equivalents;
+  if (typeof lower !== 'number' || typeof upper !== 'number' || ![lower, upper].every((n) => Number.isFinite(n) && n > 0) || lower > upper) return null;
+  const low = Math.round((lower * LOCAL_COMPARISON_RATE + Number.EPSILON) * 100) / 100;
+  const high = Math.round((upper * LOCAL_COMPARISON_RATE + Number.EPSILON) * 100) / 100;
+  if (![low, high].every(Number.isFinite)) return null;
+  const lowerDisplay = customerEstimate({ low, high: low });
+  const upperDisplay = customerEstimate({ low: high, high });
+  return { low, high, display: low === high ? lowerDisplay : `${lowerDisplay}\u2013${upperDisplay}` };
+}
+
 export function serviceGreeting(labels: string[], messages: string[]) {
   const cleanout = messages.some((text) => /\b(?:property|whole[- ]house|house|estate)\s+clean\s*out\b|\broom[- ]by[- ]room\b/i.test(text));
   const service = labels.length ? labels.map((s) => s.toLowerCase()).join(' and ') : 'your removal';
