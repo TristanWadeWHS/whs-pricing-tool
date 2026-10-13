@@ -6,7 +6,7 @@ import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT, photoFailureMessage } from 
 import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
 import RevealedText from './revealed-text';
-import { customerAssumptions, customerEstimate, ESTIMATE_INTRO, PHOTO_PENDING, SCOPE_PENDING, WINSTON_GREETING } from './lib/conversation-presentation';
+import { customerAssumptions, customerEstimate, localComparison, ESTIMATE_INTRO, PHOTO_PENDING, SCOPE_PENDING, WINSTON_GREETING } from './lib/conversation-presentation';
 
 type Photo = { file: File; room: string; url: string; hash: string };
 type Message = { role: 'user' | 'winston'; text: string; photos?: number; room?: string };
@@ -120,6 +120,7 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
   const pending = result?.items.filter((item) => item.choice === 'unresolved') ?? [];
   const completed = !busy && !error && !pending.length && !result?.questions.length && !!result?.baseline;
   const load = result?.baseline;
+  const comparison = completed && !owner ? localComparison(load ?? null) : null;
   const loadSummary = load?.range
     ? `Model-estimated ${load.range[0]}-${load.range[1]}% · ${Number((load.range[0] / 100 * 12).toFixed(4))}-${Number((load.range[1] / 100 * 12).toFixed(4))} cubic yards · ${load.range[0] / 100}-${load.range[1] / 100} trailer equivalents`
     : load ? `Model-estimated ${load.percent}% · ${load.cubicYards} cubic yards · ${load.equivalents} trailer equivalents` : '';
@@ -135,13 +136,13 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
     </fieldset>;
   }
   return <main className={styles.shell}>
-    <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><img className={styles.headerLogo} src="/wade-home-services-logo.png" width="96" height="96" alt="Wade Home Services" /></a><button type="button" onClick={startOver}>Start Over</button></header>
+    <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><img className={styles.headerLogo} src="/wade-home-services-logo.png" width="96" height="96" alt="Wade Home Services" /></a><p className={styles.serviceLine}>Junk Removal | Light Demolition | Property Cleanouts</p><button type="button" onClick={startOver}>Start Over</button></header>
     <div className={styles.pilot}>Protected Preview · Provisional estimates, reviewed by your team</div>
     <div ref={log} className={styles.log} role="log" aria-label="Conversation with Winston" aria-live="polite" aria-relevant="additions" tabIndex={0}
       onWheel={preserveReadingPosition} onTouchMove={preserveReadingPosition}
       onPointerDown={(e) => { if (e.target === e.currentTarget) preserveReadingPosition(); }}
       onKeyDown={(e) => { if (e.target === e.currentTarget && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) preserveReadingPosition(); }}>
-      <section className={styles.welcome}><img className={styles.introWinston} src="/winston-logo.png" width="200" height="200" alt="Winston, your removal guide" /><div className={styles.introBrand}><h1>Wade Home Services</h1><p>You call, we haul</p></div><p className={styles.introGreeting}><RevealedText text={WINSTON_GREETING} /></p></section>
+      <section className={styles.welcome}><img className={styles.introWinston} src="/winston-logo.png" width="240" height="240" alt="Winston, your removal guide" /><div className={styles.introBrand}><h1><img className={styles.welcomeLogo} src="/wade-home-services-logo.png" width="160" height="160" alt="Wade Home Services" /></h1><p className={styles.tagline}>You Call, We Haul!</p></div><p className={styles.introGreeting}><RevealedText text={WINSTON_GREETING} /></p></section>
       <div className={styles.services} aria-label="Services">{SERVICE_CHOICES.map(([value, label]) => <button type="button" key={value} aria-pressed={services.includes(value)} disabled={busy || optimizing || services.includes(value)} onClick={() => send('service', [value, label])}>{label}</button>)}</div>
       {messages.map((message, i) => <article key={i} ref={message.role === 'winston' && i === messages.length - 1 ? responseStart : undefined} data-speaker={message.role} className={message.role === 'user' ? styles.user : styles.winston}>
         <small>{message.role === 'user' ? 'You' : 'Winston'}</small><p>{message.role === 'winston' ? <RevealedText text={message.text} /> : message.text}</p>
@@ -152,6 +153,12 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
         {completed && result.baseline && <div className={styles.baseline}><small>{owner ? 'PROVISIONAL VOLUME BASELINE' : 'YOUR PROVISIONAL ESTIMATE'}</small><h2>{owner ? result.baseline.display : customerEstimate(result.baseline)}</h2>{owner && <p>{loadSummary}</p>}<p>Estimate subject to final confirmation. Not an approved quote.</p>{!owner && result.baseline.low !== result.baseline.high && <p>This is the midpoint of an estimated range, not a more certain price.</p>}
           {!owner && <ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>}
         </div>}
+        {comparison && <section className={styles.comparison} aria-labelledby="local-comparison-heading">
+          <h2 id="local-comparison-heading">Local Competitor Pricing</h2>
+          <p>Looking to price around? Don&apos;t worry—we already did the math for you!</p>
+          <p className={styles.comparisonAmount}>{comparison.display}</p>
+          <p className={styles.comparisonNote}>Indicative comparison using WHS&apos;s supplied $750-per-full-load benchmark for the same model-estimated volume. Actual competitor pricing varies. Not a guaranteed quote or a completed market survey.</p>
+        </section>}
         {completed && <BookingFollowUp key={result.token} customerView={!owner} token={result.token} scope={result.items.filter((i) => i.choice === 'included').map((i) => i.label)} onMessage={(role, text) => setMessages((old) => [...old, { role, text }])} />}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>

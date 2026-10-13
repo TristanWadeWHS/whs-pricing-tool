@@ -1,5 +1,49 @@
 # Winston conversation proof of concept
 
+## WHS benchmark presentation follow-up
+
+Isolated `codex/winston-benchmark-presentation` starts from PR #20 at
+`7385362b05efbe3edcf1de2686bde613b6fa5312`, preserved by annotated
+`pre-winston-benchmark-ui-snapshot-7385362`. Retained working Preview:
+https://whs-pricing-tool-p8kg-5db0jez5q-wade-home-services.vercel.app
+(`dpl_7rM9XuHJD5mw2kLrDduSb1z62zbg`). Production/main verified unchanged at
+`90ae1c249069a9f5ff05018c48271403dfad33b2`, deployment
+`dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H`, https://whs-pricing-tool-p8kg.vercel.app.
+
+Adds the centered service line, larger Winston, approved center logo, and
+"You Call, We Haul!" in local handwritten-style font fallbacks (Segoe Print is
+available on the development machine; Chalkboard SE/Comic Sans MS/cursive are
+fallbacks). No font-reference image accompanied this request, so exact font
+matching remains unverified. No font download, purchase or asset modification.
+The opening finishes its short CSS sequence without timers, layout changes or
+replaying on messages. Reduced motion reveals immediately. Completed-response
+word reveal, full screen-reader text, stage-specific dots and scroll anchors remain.
+
+WHS explicitly supplied a $750/full-load comparison benchmark for this phase.
+This supersedes the earlier omission below; it is NOT researched competitor data.
+Customer-only "Local Competitor Pricing" follows the completed provisional amount
+and visible review caveats, ahead of the existing customer-type selection.
+Existing percent-range endpoints / 100 (or point trailer equivalents) are each
+multiplied by 750 and rounded to cents in application code. A point stays a point;
+missing/invalid load evidence omits the comparison. No price-derived loads,
+invented interval, competitor names, guaranteed quotes, survey or blanket savings
+claim. The note attributes the benchmark to WHS and says actual pricing varies.
+This comparison does not change WHS pricing, midpoint, discounts or eligibility.
+It is hidden during requests, unresolved scope/clarification, errors and resets.
+Owner full ranges/calculations and protected access remain unchanged. Supporting
+scope/assumptions remain expandable below; actionable caveats remain visible.
+
+Validation: 102 focused tests (presentation, conversation, promotion/booking,
+photo optimizer and pricing), typecheck, mocked desktop/mobile conversation and
+scroll browser suites. Covers benchmark range/point/absent cases, midpoint,
+required-question withholding, reduced motion, keyboard, long responses, errors,
+reset, retained photo batches/order and no booking actions. No live service calls.
+Check the Preview on actual iPhone Safari/VoiceOver: opening/logo/tagline, service
+selection, multi-batch photos, clarification then midpoint/caveats/comparison,
+customer type, retry and Start Over. Native iPhone verification remains manual.
+No Production, upload limits/optimizer, pricing, auth, Sheet or environment changes.
+Existing snapshots, branches and deployments remain recoverable; nothing merged.
+
 ## Customer-presentation Preview, stacked on PR #19
 
 Verified working upload baseline: `47fd5c0cd661f5f00531132be69b7558395b82fe`,

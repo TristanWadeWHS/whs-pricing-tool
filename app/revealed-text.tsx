@@ -5,6 +5,6 @@ import { revealWords } from './lib/conversation-presentation';
 // reserve their final layout so reveal never changes the response's scroll anchor.
 export default function RevealedText({ text }: { text: string }) {
   return <><span className={styles.srOnly}>{text}</span><span aria-hidden="true" data-reveal="completed-response">
-    {revealWords(text).map(({ word, delay }, i) => <span key={i} className={styles.revealWord} style={{ animationDelay: `${delay}ms` }}>{word}</span>)}
+    {revealWords(text).map(({ word, delay }, i) => <span key={i} className={styles.revealWord} style={{ animationDelay: `calc(var(--reveal-offset, 0ms) + ${delay}ms)` }}>{word}</span>)}
   </span></>;
 }
