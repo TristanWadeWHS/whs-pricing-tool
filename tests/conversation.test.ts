@@ -244,7 +244,7 @@ describe('Winston confirmed scope and deterministic baseline', () => {
 describe('conversation transport / mocked provider lifecycle', () => {
   it('accepts description first, acknowledges multiple supported services and does not call a model without photos', async () => {
     const result = await post({ services: ['mixed junk', 'demo debris'] }, '', []);
-    expect(result.status).toBe(200); expect(result.body.message).toContain('Happy to help with Junk pickup and Light demolition!'); expect(parse).not.toHaveBeenCalled();
+    expect(result.status).toBe(200); expect(result.body.message).toContain('Happy to help with junk pickup and light demolition!'); expect(parse).not.toHaveBeenCalled();
     expect(readConversation(result.body.token).messages[0].text).toContain('boxes');
   });
   it('retains sequential immediately sent service choices in signed context without analysis', async () => {
@@ -252,7 +252,7 @@ describe('conversation transport / mocked provider lifecycle', () => {
     const second = await post({ message: "I'd like help with Furniture.", services: ['mixed junk', 'furniture'] }, first.body.token, []);
     expect(readConversation(second.body.token).services).toEqual(['mixed junk', 'furniture']);
     expect(readConversation(second.body.token).messages).toHaveLength(2);
-    expect(second.body.message).toContain('Junk pickup and Furniture');
+    expect(second.body.message).toContain('junk pickup and furniture');
     expect(second.body.baseline).toBeNull(); expect(parse).not.toHaveBeenCalled();
   });
   it('preserves photo batches, scope actions and question-linked answers, then recalculates additions/removals', async () => {

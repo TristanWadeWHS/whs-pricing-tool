@@ -5,12 +5,12 @@ import { SERVICE_CHOICES, type Choice, type ConversationResult } from './lib/con
 import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT, photoFailureMessage } from './lib/photo-optimizer';
 import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
+import RevealedText from './revealed-text';
+import { customerAssumptions, customerEstimate, ESTIMATE_INTRO, PHOTO_PENDING, SCOPE_PENDING, WINSTON_GREETING } from './lib/conversation-presentation';
 
 type Photo = { file: File; room: string; url: string; hash: string };
 type Message = { role: 'user' | 'winston'; text: string; photos?: number; room?: string };
-const opening = 'Hi, I\u2019m Winston! I\u2019m excited to help you make some space. What can our Wade Home Services team take off your hands today?';
-
-export default function Conversation() {
+export default function Conversation({ owner = false }: { owner?: boolean }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState(''); const [services, setServices] = useState<string[]>([]);
   const [room, setRoom] = useState(''); const [photos, setPhotos] = useState<Photo[]>([]);
@@ -20,6 +20,7 @@ export default function Conversation() {
   const [replyTo, setReplyTo] = useState('');
   const [busy, setBusy] = useState(false); const [optimizing, setOptimizing] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(''); const [error, setError] = useState('');
+  const [pendingCopy, setPendingCopy] = useState('Winston is getting ready to help. One moment.');
   const [failedPhotos, setFailedPhotos] = useState<File[]>([]);
   const token = useRef(''); const sentPhotos = useRef(0); const photoRef = useRef<Photo[]>([]);
   const generation = useRef(0); const locked = useRef(false); const photoLock = useRef(false);
@@ -62,7 +63,7 @@ export default function Conversation() {
       bytes: photoRef.current.reduce((total, photo) => total + photo.file.size, 0)
     });
     if (run !== generation.current) return;
-    if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(photoFailureMessage(optimized)); }
+    if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(owner ? photoFailureMessage(optimized) : optimized.error); }
     else {
       const added: Photo[] = []; const hashes = new Set(photoRef.current.map((p) => p.hash));
       for (const photo of optimized.photos) {
@@ -79,6 +80,8 @@ export default function Conversation() {
   }
   async function transmit(form: FormData) {
     if (locked.current || photoLock.current) return;
+    const submission = JSON.parse(String(form.get('submission')));
+    setPendingCopy(submission.actions.length || submission.answers.length ? SCOPE_PENDING : form.getAll('photos').length ? PHOTO_PENDING : 'Winston is getting ready to help. One moment.');
     scrolledDuringRequest.current = false;
     resultHeight.current = resultSection.current?.offsetHeight ?? 0;
     locked.current = true; setBusy(true); setError(''); retry.current = form;
@@ -92,7 +95,7 @@ export default function Conversation() {
       if (!response.ok || data.error || !data.token || !Array.isArray(data.items) || !Array.isArray(data.questions)) throw new Error(data.error || 'Unable to finish this turn. Your entries are retained.');
       token.current = data.token; sentPhotos.current = photoRef.current.length; retry.current = null;
       setResult(data); setChoices({}); setAnswers({}); setReplyTo(data.questions[0]?.id ?? '');
-      setMessages((old) => [...old, { role: 'winston', text: data.message }]);
+      setMessages((old) => [...old, { role: 'winston', text: !owner && data.baseline && !data.questions.length && !data.items.some((item) => item.choice === 'unresolved') ? ESTIMATE_INTRO : data.message }]);
     } catch (error) {
       if (run === generation.current) setError(error instanceof Error && error.name !== 'AbortError' ? error.message : 'The request timed out. Your conversation and photos are retained. Retry when ready.');
     } finally { clearTimeout(timeout); if (run === generation.current) { locked.current = false; setBusy(false); } }
@@ -123,7 +126,7 @@ export default function Conversation() {
   function scopeEditor() {
     return <fieldset disabled={busy || optimizing} className={styles.scope}>
       {result?.items.map((item) => <div className={styles.scopeItem} key={item.id}>
-        <label htmlFor={`scope-${item.id}`}>{item.choice === 'unresolved' ? `I see ${item.label}. Should we include it?` : item.label}<small>{item.room || 'General'} · Photo {item.photoRefs.join(', ')}</small></label>
+        <label htmlFor={`scope-${item.id}`}>{item.choice === 'unresolved' ? `I see ${item.label}. Should we include it?` : item.label}<small>{owner ? `${item.room || 'General'} · ` : ''}Photo {item.photoRefs.join(', ')}</small></label>
         <select id={`scope-${item.id}`} value={choices[item.id] ?? item.choice} onChange={(e) => setChoices((old) => ({ ...old, [item.id]: e.target.value as Choice }))}>
           <option value="unresolved">Not sure yet</option><option value="included">Include</option><option value="excluded">Leave behind</option>
         </select>
@@ -132,48 +135,51 @@ export default function Conversation() {
     </fieldset>;
   }
   return <main className={styles.shell}>
-    <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><img src="/winston-logo.png" alt="Winston" width="46" height="46" /><span>Wade Home Services<small>Removal estimates with Winston</small></span></a><button type="button" onClick={startOver}>Start Over</button></header>
+    <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><span>Wade Home Services<small>Removal estimates with Winston</small></span></a><button type="button" onClick={startOver}>Start Over</button></header>
     <div className={styles.pilot}>Protected Preview · Provisional estimates, reviewed by your team</div>
     <div ref={log} className={styles.log} role="log" aria-label="Conversation with Winston" aria-live="polite" aria-relevant="additions" tabIndex={0}
       onWheel={preserveReadingPosition} onTouchMove={preserveReadingPosition}
       onPointerDown={(e) => { if (e.target === e.currentTarget) preserveReadingPosition(); }}
       onKeyDown={(e) => { if (e.target === e.currentTarget && ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) preserveReadingPosition(); }}>
-      <section className={styles.welcome}><img src="/winston-logo.png" width="116" height="116" alt="Winston, your removal guide" /><p className={styles.eyebrow}>A little less clutter. A little more room.</p><h1>Let&apos;s make some space.</h1><p>{opening}</p></section>
+      <section className={styles.welcome}><img className={styles.introWinston} src="/winston-logo.png" width="200" height="200" alt="Winston, your removal guide" /><div className={styles.introBrand}><h1>Wade Home Services</h1><p>You call, we haul</p></div><p className={styles.introGreeting}><RevealedText text={WINSTON_GREETING} /></p></section>
       <div className={styles.services} aria-label="Services">{SERVICE_CHOICES.map(([value, label]) => <button type="button" key={value} aria-pressed={services.includes(value)} disabled={busy || optimizing || services.includes(value)} onClick={() => send('service', [value, label])}>{label}</button>)}</div>
       {messages.map((message, i) => <article key={i} ref={message.role === 'winston' && i === messages.length - 1 ? responseStart : undefined} data-speaker={message.role} className={message.role === 'user' ? styles.user : styles.winston}>
-        <small>{message.role === 'user' ? 'You' : 'Winston'}</small><p>{message.text}</p>
-        {!!message.photos && <small>{message.photos} photo{message.photos === 1 ? '' : 's'} · {message.room}</small>}
+        <small>{message.role === 'user' ? 'You' : 'Winston'}</small><p>{message.role === 'winston' ? <RevealedText text={message.text} /> : message.text}</p>
+        {!!message.photos && <small>{message.photos} photo{message.photos === 1 ? '' : 's'}{owner ? ` · ${message.room}` : ''}</small>}
       </article>)}
       {busy && <div aria-hidden="true" style={{ height: resultHeight.current }} />}
       {!busy && result && <section ref={resultSection} className={styles.result} aria-label="Current scope and estimate">
-        {completed && result.baseline && <div className={styles.baseline}><small>PROVISIONAL VOLUME BASELINE</small><h2>{result.baseline.display}</h2><p>{loadSummary}</p><p>No location minimum or access charge applied. Not a final quote.</p></div>}
+        {completed && result.baseline && <div className={styles.baseline}><small>{owner ? 'PROVISIONAL VOLUME BASELINE' : 'YOUR PROVISIONAL ESTIMATE'}</small><h2>{owner ? result.baseline.display : customerEstimate(result.baseline)}</h2>{owner && <p>{loadSummary}</p>}<p>Estimate subject to final confirmation. Not an approved quote.</p>{!owner && result.baseline.low !== result.baseline.high && <p>This is the midpoint of an estimated range, not a more certain price.</p>}
+          {!owner && <ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>}
+        </div>}
+        {completed && <BookingFollowUp key={result.token} customerView={!owner} token={result.token} scope={result.items.filter((i) => i.choice === 'included').map((i) => i.label)} onMessage={(role, text) => setMessages((old) => [...old, { role, text }])} />}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>
           {result.questions.map((q) => <div className={styles.question} key={q.id}><label htmlFor={q.id}>{q.text}</label><small>Photo {q.photoRef}: {q.evidence}</small>
             <input id={q.id} maxLength={400} required={!answers[q.id]?.notSure} disabled={answers[q.id]?.notSure} value={answers[q.id]?.text ?? ''} onChange={(e) => setAnswers((old) => ({ ...old, [q.id]: { text: e.target.value, notSure: old[q.id]?.notSure ?? false } }))} />
             <label className={styles.unknown}><input type="checkbox" checked={answers[q.id]?.notSure ?? false} onChange={(e) => setAnswers((old) => ({ ...old, [q.id]: { text: old[q.id]?.text ?? '', notSure: e.target.checked } }))} />Not sure</label>
           </div>)}<button type="submit">Send answers</button></fieldset></form>}
-        {!!result.reasons.length && <details open={!result.baseline}><summary>Review status &amp; next steps</summary><ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></details>}
-        {completed && !!result.assumptions.length && <details><summary>Assumptions &amp; volume calculation</summary><ul>{result.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul><p>Loaded percentage / 100 × $550. A supported volume interval uses both endpoints. This is not a statistical prediction interval.</p></details>}
-        {completed && <BookingFollowUp key={result.token} token={result.token} scope={result.items.filter((i) => i.choice === 'included').map((i) => i.label)} onMessage={(role, text) => setMessages((old) => [...old, { role, text }])} />}
+        {!!result.reasons.length && (owner ? <details open={!result.baseline}><summary>Review status &amp; next steps</summary><ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></details> : !completed && <section aria-label="Next steps"><ul>{result.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></section>)}
+        {completed && owner && !!result.assumptions.length && <details><summary>Assumptions &amp; volume calculation</summary><ul>{result.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul><p>Loaded percentage / 100 × $550. A supported volume interval uses both endpoints. This is not a statistical prediction interval.</p></details>}
+        {completed && !owner && !!customerAssumptions(result.assumptions).length && <details><summary>Assumptions</summary><ul>{customerAssumptions(result.assumptions).map((a, i) => <li key={i}>{a}</li>)}</ul></details>}
       </section>}
       {error && <div role="alert" className={styles.error}><p>{error}</p><button type="button" disabled={busy || optimizing} onClick={() => retry.current && void transmit(retry.current)}>Retry last message</button></div>}
       <div ref={scrollSpace} aria-hidden="true" />
     </div>
     <footer className={styles.composer}>
       <div className={styles.statusSlot} role="status" aria-live="polite" aria-atomic="true">
-        {busy && <div className={styles.busy}><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span><span>Winston is preparing your response...</span></div>}
+        {busy && <div className={styles.busy}><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span><span>{pendingCopy}</span></div>}
       </div>
       {!!photos.length && <details><summary>{photos.length}/10 photos in this conversation</summary><div className={styles.photos}>{photos.map((p, i) => <figure key={p.hash}><img src={p.url} alt={`Photo ${i + 1}, ${p.room}`} width="68" height="68" /><figcaption>{i + 1} · {p.room}</figcaption></figure>)}</div></details>}
       {replyTo && <div className={styles.reply}><span>Replying to: {result?.questions.find((q) => q.id === replyTo)?.text}</span><button type="button" disabled={busy} onClick={() => setReplyTo('')}>New topic</button></div>}
       <form onSubmit={(e) => { e.preventDefault(); send(); }}><label className={styles.srOnly} htmlFor="message">Message Winston</label><textarea ref={composer} id="message" maxLength={replyTo ? 400 : 1000} disabled={busy} placeholder={replyTo ? 'Your answer, or "Not sure"...' : 'Tell Winston what needs to go...'} value={text} onChange={(e) => setText(e.target.value)} />
         <div className={styles.tools}><label className={styles.attach} title="Choose photos from your library">+ Photos<input type="file" aria-label="Choose photos from your library" accept={PHOTO_INPUT_ACCEPT} multiple disabled={busy || optimizing} onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void addPhotos(files); }} /></label>
-          <label className={styles.room}>Room / batch<input aria-label="Room or photo batch" maxLength={60} value={room} placeholder="e.g. Garage" disabled={busy || optimizing} onChange={(e) => setRoom(e.target.value)} /></label>
+          {owner && <label className={styles.room}>Room / batch<input aria-label="Room or photo batch" maxLength={60} value={room} placeholder="e.g. Garage" disabled={busy || optimizing} onChange={(e) => setRoom(e.target.value)} /></label>}
           <button type="submit" aria-label="Send message" disabled={busy || optimizing || (!text.trim() && photos.length === sentPhotos.current)}>Send <span aria-hidden="true">↑</span></button></div>
       </form>
       <p role="status" className={styles.upload}>{uploadStatus || 'Up to 10 photos across rooms. No booking or final quote is created.'}</p>
       {!!failedPhotos.length && <button type="button" disabled={optimizing || busy} onClick={() => void addPhotos(failedPhotos)}>Retry photos</button>}
-      <a className={styles.staffLink} href="/staff-estimator">Staff estimator &amp; location options</a>
+      {owner && <a className={styles.staffLink} href="/staff-estimator">Staff estimator &amp; location options</a>}
     </footer>
   </main>;
 }

@@ -6,11 +6,19 @@
 .pilot { background:#e7f0f4; color:#305566; text-align:center; font-size:12px; padding:5px 12px; flex-shrink:0; }
 .log { overflow:auto; flex:1; min-height:0; padding:28px max(22px, calc((100% - 740px)/2)); scroll-behavior:auto; overscroll-behavior:contain; overflow-anchor:none; }
 .welcome { text-align:center; max-width:600px; margin:0 auto 24px; }
-.welcome img { object-fit:contain; }
-.welcome h1 { font-size:30px; margin:8px 0 16px; }
+.welcome img { object-fit:contain; width:200px; height:200px; }
+.welcome h1 { font-size:28px; margin:8px 0; }
 .welcome p { margin:10px 0; font-size:16px; }
-.welcome .eyebrow { font-size:12px; color:#546b62; font-weight:700; }
+.introWinston { animation:winstonAppear .3s ease-out both; }
+.introBrand { animation:brandAppear .3s .15s ease-out both; }
+.introBrand p { font-size:14px; font-weight:600; color:#546b62; }
+.introGreeting { animation:brandAppear .25s .3s ease-out both; }
+.revealWord { opacity:0; animation:wordAppear 1ms forwards; }
+@keyframes wordAppear { to { opacity:1; } }
+@keyframes brandAppear { from { opacity:0; } to { opacity:1; } }
+@keyframes winstonAppear { from { opacity:0; transform:translateY(6px) scale(.97); } to { opacity:1; transform:none; } }
 .services { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin:18px 0 28px; }
+.welcome + .services { animation:brandAppear .25s .4s ease-out both; }
 .services button { min-height:40px; padding:7px 14px; border-radius:24px; font-size:13px; background:white; color:#244b3e; border-color:#9bacab; }
 .services button[aria-pressed=true] { background:#193d2b; color:white; }
 .user,.winston { max-width:90%; margin:22px 0; overflow-wrap:anywhere; }
@@ -29,6 +37,7 @@
 .baseline small { color:#536760; font-size:11px; font-weight:700; }
 .baseline h2 { font-size:34px; margin:8px 0; }
 .baseline p { font-size:13px; margin:5px 0; }
+.baseline li { font-size:13px; margin-bottom:6px; }
 .scope { border:0; padding:0; margin:0; min-width:0; }
 .scopeItem { display:grid; grid-template-columns:1fr 145px; gap:12px; align-items:center; padding:14px 0; border-bottom:1px solid #d9e2df; }
 .scopeItem label { font-size:14px; font-weight:700; }
@@ -47,7 +56,7 @@
 .photos { display:flex; gap:10px; overflow:auto; max-height:105px; }.photos figure { margin:0; flex:0 0 68px; }.photos img { object-fit:cover; border-radius:4px; }.photos figcaption { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:68px; }
 .composer summary { padding:4px 0 8px; font-size:12px; }.srOnly { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 .reply { display:flex; align-items:center; gap:10px; font-size:12px; padding-bottom:8px; }.reply span { flex:1; }.reply button { min-height:32px; padding:4px 8px; background:white; color:#193d2b; white-space:nowrap; font-size:12px; }
-.followUp { border-top:1px solid #bccbc4; margin-top:24px; padding-top:20px; overflow-wrap:anywhere; }
+.followUp { border-top:1px solid #bccbc4; margin:12px 0 20px; padding-top:12px; overflow-wrap:anywhere; }
 .followUp h2 { font-size:22px; }.followUp h3 { font-size:18px; }.followUp p,.followUp li { font-size:14px; }
 .followUp label { font-size:14px; }.followUp input { font-size:16px; max-width:100%; min-width:0; }
 .followUp dl { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px 16px; font-size:14px; }
@@ -59,5 +68,6 @@
 .followUp input[type=radio],.followUp input[type=checkbox] { width:18px; height:18px; flex:0 0 18px; margin:3px 0; }
 .bookingActions button { font-size:14px; min-height:44px; }.followUp button:disabled { opacity:.55; cursor:not-allowed; }
 @keyframes dotHighlight { 0%,32% { opacity:1; } 33%,100% { opacity:.25; } }
-@media(prefers-reduced-motion:reduce) { .dots i { animation:none; opacity:1; } }
+@media(prefers-reduced-motion:reduce) { .dots i,.revealWord,.introWinston,.introBrand,.introGreeting,.welcome + .services { animation:none; opacity:1; transform:none; } }
+@media(max-width:600px) { .shell .welcome img { width:160px; height:160px; }.shell .welcome h1 { font-size:24px; } }
 @media(max-width:600px) { .header { padding:12px 16px; gap:8px; }.header a { font-size:15px; }.header small { font-size:10px; }.header img { width:38px; height:38px; }.pilot { font-size:10px; }.log { padding:20px 18px; }.welcome img { width:90px; height:90px; }.welcome h1 { font-size:26px; }.welcome p { font-size:15px; }.composer { padding:10px 14px max(10px,env(safe-area-inset-bottom)); }.tools { gap:8px; }.room { max-width:125px; }.tools button { padding:8px 12px; }.scopeItem { grid-template-columns:1fr 125px; }.baseline h2 { font-size:30px; } }

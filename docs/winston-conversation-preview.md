@@ -1,5 +1,85 @@
 # Winston conversation proof of concept
 
+## Customer-presentation Preview, stacked on PR #19
+
+Verified working upload baseline: `47fd5c0cd661f5f00531132be69b7558395b82fe`,
+branch `codex/mobile-access-photos`, draft PR #19 based on #18. Preserved with
+annotated `pre-winston-customer-ui-snapshot-47fd5c0` before creating the isolated
+`codex/winston-customer-ui` branch. Retained rollback Preview:
+https://whs-pricing-tool-p8kg-qqqu155l3-wade-home-services.vercel.app
+(`dpl_G7fQivzq3fSPtujvMufhfJVYoYmL`). Production remains
+`90ae1c249069a9f5ff05018c48271403dfad33b2`, deployment
+`dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H`, https://whs-pricing-tool-p8kg.vercel.app.
+Use the retained Preview for rollback testing; no refs are moved or rewritten.
+
+The root is a protected customer-presentation preview. `/owner` retains full
+ranges, technical assumptions/calculations, room input, upload diagnostics and
+staff navigation; `/staff-estimator` is unchanged. Both presentations use the
+EXISTING shared internal authorization. This is NOT a new customer identity/role
+boundary: authorized Preview users can access the existing API and signed state.
+Do not publish it publicly without a separate reviewed customer/owner authorization
+and response-data boundary. Hiding controls here is presentation, not access control.
+
+Reuses the existing Winston PNG at larger centered dimensions. A brief CSS sequence
+reveals Winston, the existing text wordmark plus "You call, we haul", and conversation
+controls. Dimensions are reserved; no artificial request delay or animation replay
+on conversation updates. Git contains only `public/winston-logo.png`, not a separate
+WHS company logo image. The text wordmark is a disclosed placeholder for that missing
+approved asset, not an invented/fetched logo. Supply the approved standalone logo
+to complete the requested graphical logo placement.
+
+Greeting and each completed Winston message reveal word by word with reserved
+layout and no scroll callbacks. This is client-side reveal, NOT live model streaming.
+Screen readers receive one full text node; decorative words are aria-hidden.
+Reduced motion reveals immediately. Messages containing money are not staggered.
+Existing response-start anchors, deliberate scrolling and stale-request safeguards
+remain. Photo/caption and scope-answer stages use the requested distinct pending
+copy with the existing three-dot animation. The phrase "precise price" is progress
+copy requested by the owner, not a calibration claim; the resulting estimate remains
+provisional and subject to final confirmation.
+
+The customer display midpoint is calculated from existing application price
+endpoints using integer cents: $252-$380 displays $316. A point stays a point.
+This does not change underlying load pricing, range endpoints, model behavior or
+discount policy. Range midpoint caveat and all material review reasons remain
+visible adjacent to the estimate. Confirmed scope and non-calculation assumptions
+are below the customer selection, expandable; pending actions are never collapsed.
+The owner retains full assumptions and calculations. Service acknowledgments ask
+for descriptive information without generic room-by-room guidance; room guidance
+is offered only for an explicit request or property/house/estate cleanout description.
+
+Customer-type selection reuses the existing signed-state promotion action and
+10% policy/eligibility caveats. Customer presentation has no booking fields,
+confirmation controls or booking action; it never confirms an appointment. Existing
+owner tools and booking safeguards are retained, not enabled or expanded. No emails,
+SMS, calendar entries or other external actions were performed.
+
+Competitor comparison is omitted: repository material does not provide a verified
+local comparable quote. Required evidence is a dated source, service area, equivalent
+scope and trailer capacity, included labor/disposal/services, fees and exclusions.
+No invented $750 comparison, competitor contact or customer-data sharing.
+
+Checks: 45 affected presentation/conversation/booking tests and typecheck passed.
+Mocked desktop and mobile-emulated browser checks passed for midpoint, protected
+owner/customer visibility, word reveal, reduced motion, keyboard selection, long
+response anchoring, no scroll during reveal, pending prices withheld, scope answers,
+error/retry/reset/stale response, two photo batches and recoverable invalid input.
+The dedicated prior scroll suite also passes for short/long anchors, deliberate
+scrolling during requests, dot sequence and reduced motion. Unauthenticated root,
+owner, staff estimator and conversation API return 401. Synthetic screenshots
+were inspected. No live AI, Maps, Sheets, email, SMS or calendar calls.
+Optimizer, limits, auth/session, pricing, promotion calculations and booking API
+have no diff from the preserved candidate. Native iPhone Safari, its keyboard,
+VoiceOver and Photo Library still require Tristan's manual Preview test.
+
+Manual check: open the customer root, observe the brief opening and greeting;
+select junk pickup, add photos in two batches and answer any scope question.
+Check stage-specific dots, response-start position and manual scrolling while text
+appears. Confirm the final midpoint and visible caveats, then select customer type:
+no booking form or appointment confirmation should appear. Visit `/owner` directly
+to review original range, assumptions, calculations and staff tools. Retry a failed
+message and Start Over; no old estimate or delayed response should reappear.
+
 ## Baseline, isolation and rollback
 
 Starting candidate: `0e11d32142d62216a9b8bb5740ac1e74a8e888ec`, draft PR #14,

@@ -8,6 +8,7 @@ import { finishConversation, freshConversation, readConversation, signConversati
 import { getConfiguredOpenAIModel, OPENAI_ANALYSIS_TIMEOUT_MS } from '../../lib/openai-analysis';
 import { matchesImageSignature } from '../../lib/request-validation';
 import { getPhotoSizeRejection, MAX_ESTIMATE_PHOTOS, SAFE_ESTIMATE_REQUEST_BODY_LIMIT_BYTES } from '../../lib/estimate-limits';
+import { serviceGreeting } from '../../lib/conversation-presentation';
 
 export const runtime = 'nodejs';
 const submissionSchema = z.object({ message: z.string().trim().max(1000), room: z.string().trim().max(60),
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
     state.messages.push({ text: data.message, room: data.room }); state.turn++;
     state.services = data.services; state.photoHashes = photos.map((p) => p.hash); state.photoRooms = data.photoRooms;
     if (!photos.length) return reply({ token: signConversation(state), items: [], questions: [], baseline: null, review: true, assumptions: [], reasons: [],
-      message: `Happy to help with ${data.services.map((s) => SERVICE_CHOICES.find(([v]) => v === s)![1]).join(' and ') || 'your removal'}! Let's make some space. Tell me what needs to go and add photos whenever you're ready. We can take it one room at a time!` });
+      message: serviceGreeting(data.services.map((s) => SERVICE_CHOICES.find(([v]) => v === s)![1]), state.messages.map((message) => message.text)) });
     if (!process.env.OPENAI_API_KEY) return reply({ error: 'Photo analysis is not configured. Your entries are retained; staff review is available.', baseline: null }, 503);
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0, timeout: OPENAI_ANALYSIS_TIMEOUT_MS });
     const response = await client.responses.parse({ model: getConfiguredOpenAIModel(), store: false, reasoning: { effort: 'low' },
