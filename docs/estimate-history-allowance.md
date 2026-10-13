@@ -7,7 +7,34 @@ Stacked on draft PR #21, `codex/winston-benchmark-presentation`, exact baseline
 Snapshot: `pre-estimate-history-snapshot-1bc6615`.
 Production remains `90ae1c249069a9f5ff05018c48271403dfad33b2`, deployment
 `dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H`, https://whs-pricing-tool-p8kg.vercel.app.
-No public launch, live migrations, real photos, or Production changes are performed here.
+No public launch, real customer photos, or Production changes are performed here.
+
+### Authorized Preview activation (2026-10-13, in progress)
+
+Tristan has now supplied exact uppercase `PRICER_DATABASE_URL` for dedicated
+`WHS-Pricer-History` and an independent `PRICER_VISITOR_SECRET`, both sensitive and
+Preview-only. This supersedes the earlier missing-variable findings below.
+Candidate `d98752d106c5c4073dc93970ff74d45d0e5ef61c` is preserved by annotated tag
+`pre-history-activation-snapshot-d98752d`. Main/Production remain unchanged.
+
+Explicit setup command, **only in the authorized Vercel Preview build environment**:
+`npx --no-install vitest run --config scripts/history-preview.config.mts`.
+It is not part of normal builds, tests, startup or a web endpoint. The guard requires
+the exact pricer project/branch, Preview, disabled public/quota flags, staff confirmation,
+the dedicated configured Neon connection and Blob OIDC. No secret values are exported.
+Database/schema metadata only is inspected; existing unmanaged or partial schema stops
+setup. An empty schema receives the SQL file in one locked transaction and a checksum/
+target-fingerprint/source-commit migration ledger. A matching ledger is not reapplied.
+No existing records are selected, reset, overwritten or deleted.
+
+The explicit verifier retains one isolated synthetic estimate and two synthetic PNGs
+with ordered original/analysis variants under `pricer-estimates/v1/<synthetic UUID>/`.
+It uses real private Blob OIDC uploads/head/reads, real SQL and the actual session,
+conversation/history/photo handlers; only OpenAI is mocked. It checks scope withholding,
+clarification revisions, successful retry replay and staff-only access. No cleanup is run.
+Build-process verification does not itself certify native iPhone behavior or deployed
+HTTP/browser authentication. Shared history remains disabled until storage verification
+passes; these results will be recorded separately rather than assumed from configuration.
 
 ### Preview connection follow-up (2026-10-13)
 
