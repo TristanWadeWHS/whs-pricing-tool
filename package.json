@@ -14,15 +14,18 @@
     "benchmark:shadow-pricing": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/run-shadow-pricing-benchmark.ts"
   },
   "dependencies": {
+    "@vercel/blob": "2.8.0",
     "googleapis": "174.0.1",
     "heic-to": "1.6.5",
     "next": "16.3.1",
     "openai": "6.39.0",
+    "postgres": "3.4.7",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.9",
     "@types/node": "25.9.1",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",

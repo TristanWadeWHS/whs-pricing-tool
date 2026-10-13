@@ -34,9 +34,10 @@ export type ScopeItem = Omit<z.infer<typeof itemSchema>, 'duplicateOf'> & { choi
 export type Question = z.infer<typeof questionSchema> & { id: string };
 export type Answer = { id: string; text: string; notSure: boolean };
 export type ConversationState = { version: 1; expires: number; turn: number;
+  historyEstimateId?:string; historyVisitorId?:string;
   messages: { text: string; room: string }[]; services: string[]; photoHashes: string[]; photoRooms: string[];
   items: ScopeItem[]; questions: Question[]; answers: Answer[];
   completedEstimate?: { percent: number; rangeText: string; exceptional: boolean } };
 export type ConversationResult = { token: string; message: string; items: ScopeItem[]; questions: Question[];
   baseline: ReturnType<typeof import('./pricing').volumeBaseline> | null;
-  reasons: string[]; assumptions: string[]; review: boolean; error?: string };
+  reasons: string[]; assumptions: string[]; review: boolean; error?: string; errorCategory?:string; archiveRevision?:number };

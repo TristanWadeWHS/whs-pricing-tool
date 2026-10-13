@@ -154,6 +154,10 @@ Do not reveal values in logs, screenshots, docs, or PR descriptions.
 
 ## Rollback
 
+Private estimate history and the future public allowance are opt-in and unconfigured by
+default. See [setup, privacy, retention and verification](docs/estimate-history-allowance.md)
+before enabling them; no storage is provisioned or migrated automatically.
+
 Rollback is simple because pricing constants and formulas are preserved. Revert the deployment to the previous Vercel production deployment if access-gate or Structured Outputs behavior blocks internal operations.
 
 Every material PR must include the starting baseline, Preview URL, browser verification, manual verification requirement, rollback commit, and rollback deployment.
