@@ -135,7 +135,7 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
     </fieldset>;
   }
   return <main className={styles.shell}>
-    <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><span>Wade Home Services<small>Removal estimates with Winston</small></span></a><button type="button" onClick={startOver}>Start Over</button></header>
+    <header className={styles.header}><a href="/" onClick={(e) => { e.preventDefault(); startOver(); }} aria-label="Wade Home Services - start over"><img className={styles.headerLogo} src="/wade-home-services-logo.png" width="96" height="96" alt="Wade Home Services" /></a><button type="button" onClick={startOver}>Start Over</button></header>
     <div className={styles.pilot}>Protected Preview · Provisional estimates, reviewed by your team</div>
     <div ref={log} className={styles.log} role="log" aria-label="Conversation with Winston" aria-live="polite" aria-relevant="additions" tabIndex={0}
       onWheel={preserveReadingPosition} onTouchMove={preserveReadingPosition}

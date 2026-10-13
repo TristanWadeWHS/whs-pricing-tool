@@ -23,10 +23,10 @@ and response-data boundary. Hiding controls here is presentation, not access con
 Reuses the existing Winston PNG at larger centered dimensions. A brief CSS sequence
 reveals Winston, the existing text wordmark plus "You call, we haul", and conversation
 controls. Dimensions are reserved; no artificial request delay or animation replay
-on conversation updates. Git contains only `public/winston-logo.png`, not a separate
-WHS company logo image. The text wordmark is a disclosed placeholder for that missing
-approved asset, not an invented/fetched logo. Supply the approved standalone logo
-to complete the requested graphical logo placement.
+on conversation updates. The subsequently supplied approved WHS logo is preserved
+unchanged in `public/wade-home-services-logo.png` and appears at the top left in the
+reset link (96px desktop, 72px mobile). Winston remains centered in the welcome area.
+The logo follow-up passed typecheck and mocked desktop/mobile conversation checks.
 
 Greeting and each completed Winston message reveal word by word with reserved
 layout and no scroll callbacks. This is client-side reveal, NOT live model streaming.

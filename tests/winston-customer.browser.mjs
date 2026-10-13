@@ -42,7 +42,11 @@ try {
     async function send(text) { await composer.fill(text); await page.getByRole('button', { name: 'Send message', exact: true }).click(); await page.waitForFunction(() => document.querySelector('textarea').disabled); }
     await page.goto(url);
     assert.equal(await position(), 0);
-    assert.equal(await page.locator('header img').count(), 0);
+    const headerLogo = page.locator('header img');
+    assert.equal(await headerLogo.count(), 1);
+    assert.equal(await headerLogo.getAttribute('src'), '/wade-home-services-logo.png');
+    assert(await headerLogo.evaluate((img) => img.complete && img.naturalWidth > 0));
+    assert.equal((await headerLogo.boundingBox()).width, mobile ? 72 : 96);
     assert((await page.getByAltText('Winston, your removal guide').boundingBox()).width >= 160);
     assert.equal(await page.getByLabel('Room or photo batch').count(), 0);
     assert.equal(await page.getByRole('link', { name: /Staff estimator/ }).count(), 0);
