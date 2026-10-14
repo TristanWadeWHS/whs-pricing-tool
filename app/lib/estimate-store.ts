@@ -29,7 +29,7 @@ export class EstimateStore {
     const digest=createHash('sha256').update(JSON.stringify(input)).digest('hex');
     const lease=randomUUID();
     const [row]=await this.sql<{value:{error?:string;cached?:boolean;result?:Omit<ConversationResult,'token'>;state?:ConversationState;lease?:string}}>(
-      'SELECT pricer_reserve($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12) AS value',
+      'SELECT pricer_reserve($1,$2,$3,$4,$5::text::jsonb,$6,$7,$8,$9,$10,$11,$12) AS value',
       [v,id,request,digest,JSON.stringify(input),revision,paid,allowanceEnabled()&&!staff,
         boundedSetting('PRICER_DAILY_ALLOWANCE',3,20),boundedSetting('PRICER_MAX_ANALYSIS_REVISIONS',8,20),lease,now]);
     if(row.value.error) throw new ArchiveError(row.value.error,row.value.error==='daily_limit'?429:409);
@@ -40,7 +40,9 @@ export class EstimateStore {
     const record={ input, state, result, analysis:model, photos:await this.photos(id), versions:{model:modelId,prompt:'conversation-v1-ordinary-volume',schema:'conversation-v1',pricing:'volume-550-v1',presentation:'midpoint-benchmark-750-v1'},
       promptTemplate:template, displayed:{amount:displayedBaseline?customerEstimate(displayedBaseline):null,introduction:displayedBaseline?ESTIMATE_INTRO:result.message,comparison:localComparison(displayedBaseline)},
       pricingInputs:{baseline:result.baseline,services:state.services},appliedAdjustments:[],outcomes:{customerId:null,acceptedQuoteId:null,bookingJobId:null,finalCompletedPrice:null,actualLoads:null,completionDate:null,scopeChangeReason:null} };
-    const [done]=await this.sql<{ok:boolean}>('SELECT pricer_finish($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8) AS ok',[v,id,request,lease,JSON.stringify(result),JSON.stringify(state),JSON.stringify(record),now]);
+    // These values are already JSON text. Prevent the driver's JSONB serializer
+    // from encoding them again as strings before PostgreSQL receives the objects.
+    const [done]=await this.sql<{ok:boolean}>('SELECT pricer_finish($1,$2,$3,$4,$5::text::jsonb,$6::text::jsonb,$7::text::jsonb,$8) AS ok',[v,id,request,lease,JSON.stringify(result),JSON.stringify(state),JSON.stringify(record),now]);
     if(!done.ok)throw new ArchiveError('stale_lease');
   }
   async fail(v:string,id:string,request:string,lease:string,category:string) { await this.sql('SELECT pricer_fail($1,$2,$3,$4,$5)',[v,id,request,lease,category]); }

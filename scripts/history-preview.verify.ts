@@ -96,6 +96,9 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     }
     stage='saved_analysis';parse.mockResolvedValue({output_parsed:model});
     const first=await turn(0,base,randomUUID());assert.equal(first.baseline,null);
+    const [persistedType]=await db`SELECT jsonb_typeof(state) AS kind FROM pricer_estimates WHERE id=${id}`;
+    console.log(`PRICER_VERIFY state_is_object=${persistedType.kind==='object'}`);
+    assert.equal(persistedType.kind,'object');
     stage='clarification_revision';
     const scoped={...base,actions:[{id:'i_boxes',choice:'included'}]};
     parse.mockResolvedValue({output_parsed:{...model,pricedItemIds:['i_boxes'],questions:[{itemId:'i_boxes',topic:'contents',text:'Are the boxes empty?',evidence,photoRef:1,impact:'volume',volumeEffect:'Empty boxes flatten and reduce packed volume.'}],loadedGroups:[{itemIds:['i_boxes'],photoRefs:[1,2],quantityDescription:'Two synthetic boxes',evidence,lowCubicYards:1,highCubicYards:2,packingAssumptions:['Keep closed boxes intact.'],uncertainty:'Contents affect flattening.',handlingConcern:null,answerIds:[]}]}});
@@ -124,6 +127,41 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
       const response=await photo(new Request(purl,{headers:staff}));assert.equal(response.status,200);assert(Buffer.from(await response.arrayBuffer()).equals(buffers[i]));
     }
     console.log(`PRICER_VERIFY PASS synthetic_estimate=${id} revisions=3 originals=2 optimized=2 idempotency=pass staff-handlers=pass analysis=mocked`);
+    if(process.env.PRICER_VERIFY_HTTP_ORIGIN) {
+      stage='deployed_http_target';
+      const target=new URL(process.env.PRICER_VERIFY_HTTP_ORIGIN);
+      assert(target.protocol==='https:' && target.hostname.startsWith('whs-pricing-tool-p8kg-') && target.hostname.endsWith('-wade-home-services.vercel.app') && target.pathname==='/');
+      const base=target.origin,remoteId=randomUUID(),remotePhoto=randomUUID(),remoteRequest=randomUUID();
+      const request=(path:string,init:RequestInit={})=>fetch(base+path,{...init,redirect:'manual',headers:{origin:base,...staff,...init.headers}});
+      stage='deployed_staff_auth';
+      assert.equal((await fetch(base+'/owner/history',{redirect:'manual'})).status,401);
+      assert.equal((await fetch(base+'/api/estimate-history?id='+remoteId,{redirect:'manual'})).status,401);
+      const owner=await request('/owner/history');assert.equal(owner.status,200);assert.match(owner.headers.get('cache-control')!,/no-store/);
+      stage='deployed_session';
+      const remoteSession=await request('/api/estimate-session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:remoteId})});
+      assert.equal(remoteSession.status,200);
+      const remoteCookie=remoteSession.headers.get('set-cookie')!.split(/,(?=\s*__Host-)/).find(c=>c.trim().startsWith('__Host-whs-estimate-visitor='))!.trim().split(';')[0];
+      const photoData={estimateId:remoteId,photoId:remotePhoto,ordinal:1,mime:'image/png',bytes:buffers[0].length,hash:createHash('sha256').update(buffers[0]).digest('hex')};
+      const remoteUpload=(action:string)=>request('/api/estimate-photos',{method:'POST',headers:{cookie:remoteCookie,'content-type':'application/json'},body:JSON.stringify({...photoData,action})});
+      stage='deployed_oidc_upload';
+      const authorized=await remoteUpload('authorize');assert.equal(authorized.status,200);
+      const uploadUrl=(await authorized.json()).presignedUrl;assert.equal(typeof uploadUrl,'string');
+      assert((await fetch(uploadUrl,{method:'PUT',body:Uint8Array.from(buffers[0]),headers:{'Content-Type':'image/png'},redirect:'error'})).ok);
+      assert.equal((await remoteUpload('complete')).status,200);
+      stage='deployed_save_and_retry_no_ai';
+      const remoteTurn=async()=>{
+        const form=new FormData();form.set('submission',JSON.stringify({message:'Synthetic storage verification; no analysis requested.',room:'Synthetic',services:['mixed junk'],photoRooms:[],actions:[],answers:[]}));
+        form.set('history',JSON.stringify({estimateId:remoteId,requestId:remoteRequest,revision:0}));
+        const response=await request('/api/conversation',{method:'POST',headers:{cookie:remoteCookie},body:form});assert.equal(response.status,200);return response.json();
+      };
+      const savedTurn=await remoteTurn(),retriedTurn=await remoteTurn();assert.equal(savedTurn.archiveRevision,1);assert.equal(retriedTurn.archiveRevision,1);assert.equal(savedTurn.baseline,null);
+      stage='deployed_staff_synthetic_detail';
+      const detail=await request('/api/estimate-history?id='+remoteId);assert.equal(detail.status,200);
+      assert.equal((await detail.json()).revisions.length,1);
+      const read=await request(`/api/estimate-history/photo?id=${remoteId}&photo=${remotePhoto}&variant=original`);assert.equal(read.status,200);
+      assert(Buffer.from(await read.arrayBuffer()).equals(buffers[0]));
+      console.log(`PRICER_VERIFY HTTP_PASS synthetic_estimate=${remoteId} staff-page=200 anonymous=401 runtime-oidc-upload-read=pass saved-retry=pass ai-calls=0`);
+    }
   } catch {
     // SDK/SQL/assertion errors can carry connection strings or signed URLs. Never emit them.
     throw new Error(`PRICER_VERIFY_BLOCKED stage=${stage}; no sensitive error details emitted`);

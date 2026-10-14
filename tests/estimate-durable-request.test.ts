@@ -8,8 +8,16 @@ vi.mock('../app/lib/estimate-photos',()=>({archiveAnalysisPhotos:vi.fn()}));
 vi.mock('postgres',async()=>{
   const {PGlite}=await import('@electric-sql/pglite');
   const {readFile}=await import('node:fs/promises');
+  const actual=await vi.importActual<{default:typeof import('postgres')}>('postgres');
+  // Use the installed driver's real JSON serializer. PGlite alone accepts already
+  // encoded strings and misses the JSONB parameter serialization done by Postgres.js.
+  const serializers=actual.default('postgres://synthetic:synthetic@localhost/unused').options.serializers;
   local.db=new PGlite();await local.db.exec(await readFile('db/estimate-history.sql','utf8'));
-  return {default:()=>({unsafe:async(q:string,v:unknown[])=>(await local.db!.query(q,v)).rows})};
+  return {default:()=>({unsafe:async(q:string,v:unknown[])=>{
+    const values=[...v],positions=q.includes('pricer_reserve(')?[4]:q.includes('pricer_finish(')?[4,5,6]:[];
+    for(const i of positions) if(!q.includes(`$${i+1}::text::jsonb`)) values[i]=serializers[3802](values[i]);
+    return (await local.db!.query(q,values)).rows;
+  }})};
 });
 import { EstimateStore } from '../app/lib/estimate-store';
 import { newVisitorCookie,VISITOR_COOKIE } from '../app/lib/estimate-access';

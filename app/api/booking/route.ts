@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       const result={ customerType: data.customerType, promotion, bookingEnabled: false, bookingNotice: BOOKING_DISABLED_NOTICE,
       message: data.customerType === 'new' ? 'Welcome to the Wade Home Services family! We are happy to help. Here is your temporary promotion illustration for team review.'
         : 'Welcome back! It is wonderful to help you again. Here is your temporary promotion illustration for team review.' };
-      if(historyEnabled())await new EstimateStore().sql('INSERT INTO pricer_events(estimate_id,event_key,record) VALUES($1,$2,$3::jsonb) ON CONFLICT DO NOTHING',
+      if(historyEnabled())await new EstimateStore().sql('INSERT INTO pricer_events(estimate_id,event_key,record) VALUES($1,$2,$3::text::jsonb) ON CONFLICT DO NOTHING',
         [state.historyEstimateId,`promotion:${state.turn}:${data.customerType}`,JSON.stringify({customerMessage:data.customerType==='new'?'I am a new customer.':'I am a returning customer.',result,displayed:{original:customerEstimate(promotion.original),discount:customerEstimate(promotion.discount),total:customerEstimate(promotion.total)},revision:state.turn})]);
       return reply(result);
     }
