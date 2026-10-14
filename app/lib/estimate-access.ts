@@ -1,6 +1,7 @@
 import 'server-only';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { INTERNAL_SESSION_COOKIE, validInternalSession } from './internal-session';
+import { getVercelOidcTokenSync } from '@vercel/oidc';
 
 export const VISITOR_COOKIE = '__Host-whs-estimate-visitor';
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,7 +19,9 @@ export function boundedSetting(name: string, fallback: number, max: number) {
 }
 export function historyConfigured() {
   // Configuration presence is not an access check. SDK calls still authorize every operation.
-  const blobCredentials=!!process.env.BLOB_READ_WRITE_TOKEN || (!!process.env.BLOB_STORE_ID && !!process.env.VERCEL_OIDC_TOKEN);
+  // Functions receive OIDC in trusted request context; builds may use the env fallback.
+  let oidc=false;try {oidc=!!getVercelOidcTokenSync();}catch { /* No SDK identity available. */ }
+  const blobCredentials=!!process.env.BLOB_READ_WRITE_TOKEN || (!!process.env.BLOB_STORE_ID && oidc);
   return historyEnabled() && !!process.env.PRICER_DATABASE_URL && (process.env.PRICER_VISITOR_SECRET?.length ?? 0)>=32
     && blobCredentials && process.env.PRICER_BLOB_PRIVATE_CONFIRMED === 'true';
 }

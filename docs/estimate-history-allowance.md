@@ -54,6 +54,13 @@ Verified on `6bc781e6cfd9566ef89faf2403eb27de741303cb` in Vercel Preview:
   unauthorized denial all passed against real storage. Analysis was mocked, not paid/live.
 - 22 affected local tests and typecheck passed. Failed synthetic diagnostic attempts are
   retained; no cleanup ran. These fixtures are not customer estimates or training data.
+- Deployed HTTP verification then exposed a configuration guard that accepted build-time
+  OIDC but ignored the SDK's trusted Function request context, returning session HTTP 503.
+  The guard now uses `getVercelOidcTokenSync`; actual Blob operations still authorize with
+  the SDK. Already installed `@vercel/oidc@3.8.10` is pinned as a direct dependency with no
+  version upgrade. Its request-context regression failed before the change; 8 affected
+  Blob/access/request tests passed afterward. Platform Trusted Sources authentication is
+  kept separate from app staff authentication; neither protection is disabled.
 
 `PRICER_HISTORY_ENABLED=true` is authorized **Preview-only on this PR branch** after the
 checks above. Public customers and the shared Preview daily limit remain false. Optional

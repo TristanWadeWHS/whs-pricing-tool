@@ -25,6 +25,14 @@ it('requires credentials as well as a store ID; webhook public key does not auth
   vi.stubEnv('VERCEL_OIDC_TOKEN','');vi.stubEnv('BLOB_WEBHOOK_PUBLIC_KEY','synthetic-public-key');expect(historyConfigured()).toBe(false);
   vi.stubEnv('BLOB_READ_WRITE_TOKEN','synthetic-explicit-token');expect(historyConfigured()).toBe(true);
 });
+it('recognizes the SDK request-context identity when no build-time token environment variable exists',()=>{
+  configure();vi.stubEnv('VERCEL_OIDC_TOKEN','');
+  const symbol=Symbol.for('@vercel/request-context'),prior=Object.getOwnPropertyDescriptor(globalThis,symbol);
+  Object.defineProperty(globalThis,symbol,{configurable:true,value:{get:()=>({headers:{'x-vercel-oidc-token':'synthetic-runtime-identity'}})}});
+  try {expect(historyConfigured()).toBe(true);} finally {
+    if(prior)Object.defineProperty(globalThis,symbol,prior);else Reflect.deleteProperty(globalThis,symbol);
+  }
+});
 it('issues only a short-lived private PUT URL scoped to the exact photo, type and size',async()=>{
   const {req,row}=request();
   const mockSql=vi.fn(async()=>[{photo_id:row.photo_id}]) as unknown as Query;
