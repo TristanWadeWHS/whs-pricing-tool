@@ -151,6 +151,8 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
       assert.equal((await fetch(base+'/api/estimate-history?id='+remoteId,{redirect:'manual',headers:platform})).status,401);
       stage='deployed_session';
       const remoteSession=await request('/api/estimate-session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:remoteId})});
+      const sessionBody=await remoteSession.json();
+      console.log(`PRICER_VERIFY session_http=${remoteSession.status} enabled=${sessionBody.enabled===true} config_missing=${sessionBody.error==='Private estimate storage is not configured. Your entries are retained.'} visitor_cookie_present=${remoteSession.headers.get('set-cookie')?.includes('__Host-whs-estimate-visitor=')===true}`);
       assert.equal(remoteSession.status,200);
       const remoteCookie=remoteSession.headers.get('set-cookie')!.split(/,(?=\s*__Host-)/).find(c=>c.trim().startsWith('__Host-whs-estimate-visitor='))!.trim().split(';')[0];
       const photoData={estimateId:remoteId,photoId:remotePhoto,ordinal:1,mime:'image/png',bytes:buffers[0].length,hash:createHash('sha256').update(buffers[0]).digest('hex')};
