@@ -16,12 +16,22 @@ try {
     const context = await browser.newContext({ ...(mobile ? devices['iPhone 13'] : { viewport: { width: 1280, height: 900 } }), reducedMotion: mobile ? 'reduce' : 'no-preference', httpCredentials: { username: 'staff', password: 'synthetic-mobile-test' } });
     const page = await context.newPage(); page.setDefaultTimeout(30000); page.setDefaultNavigationTimeout(90000);
     const errors = [], submissions = [], pending = [], promotions = [];
+    const archiveCalls=[];
+    const originalUploads=[];
+    if(process.env.ARCHIVE_SMOKE==='1') {
+      await page.route('**/api/estimate-session',route=>{archiveCalls.push(route.request().postDataJSON());return route.fulfill({json:{enabled:true}});});
+      await page.route('**/api/estimate-photos',route=>{const data=route.request().postDataJSON();archiveCalls.push(data);return route.fulfill({json:data.action==='authorize'?{presignedUrl:`https://synthetic-blob.invalid/${data.photoId}`}:{complete:true}});});
+      await page.route('https://synthetic-blob.invalid/**',route=>{
+        if(route.request().method()==='PUT')originalUploads.push({method:'PUT',bytes:route.request().postDataBuffer()?.length,type:route.request().headers()['content-type']});
+        return route.fulfill({status:200,body:'',headers:{'Access-Control-Allow-Origin':url,'Access-Control-Allow-Methods':'PUT, OPTIONS','Access-Control-Allow-Headers':'Content-Type'}});
+      });
+    }
     page.on('pageerror', (e) => errors.push(e.message));
     await context.route('**/*', (route) => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
     await page.route('**/api/conversation', async (route) => {
       const request = route.request();
       const form = await new Request('http://synthetic.test', { method: 'POST', headers: request.headers(), body: request.postDataBuffer() }).formData();
-      submissions.push({ data: JSON.parse(form.get('submission')), files: form.getAll('photos').length });
+      submissions.push({ data: JSON.parse(form.get('submission')), files: form.getAll('photos').length,history:form.get('history')?JSON.parse(form.get('history')):null });
       const response = await new Promise((resolve) => pending.push(resolve));
       await route.fulfill(response).catch(() => {});
     });
@@ -35,8 +45,9 @@ try {
     const status = page.locator('footer [role=status]').first();
     const comparison = page.getByRole('region', { name: 'Local Competitor Pricing', exact: true });
     const position = () => log.evaluate((e) => e.scrollTop);
+    async function waitPending() { for(let n=0;n<100&&!pending.length;n++)await page.waitForTimeout(50);assert(pending.length); }
     async function finish(body, code = 200) {
-      assert(pending.length); pending.shift()({ status: code, json: body });
+      await waitPending(); pending.shift()({ status: code, json: body });
       await page.waitForFunction(() => !document.querySelector('textarea').disabled);
       assert.equal(await status.locator('i').count(), 0);
     }
@@ -139,6 +150,7 @@ try {
     await send('Synthetic recoverable error.'); await finish({ error: 'Synthetic request failure.' }, 502);
     await page.getByRole('button', { name: 'Retry last message' }).click();
     await page.waitForFunction(() => document.querySelector('textarea').disabled);
+    await waitPending();
     await page.getByRole('button', { name: 'Start Over', exact: true }).click();
     assert.equal(await status.locator('i').count(), 0); assert.equal(await position(), 0);
     pending.shift()({ json: final }); await page.waitForTimeout(150);
@@ -155,10 +167,30 @@ try {
     assert(await page.getByText('Loaded percentage / 100 x $550.', { exact: true }).isVisible());
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(errors, []);
+    if(process.env.ARCHIVE_SMOKE==='1') {
+      assert(archiveCalls.some(c=>c.ordinal===3&&c.action==='authorize'));
+      assert.equal(originalUploads.length,3);
+      assert(originalUploads.every(p=>p.method==='PUT'&&p.bytes>0&&p.type==='image/jpeg'));
+      assert(submissions.every(s=>s.history?.estimateId&&s.history?.requestId));
+      assert.notEqual(submissions[0].history.estimateId,submissions.at(-1).history.estimateId,'Start Over creates a new job, not a new visitor');
+      const id='11111111-1111-4111-8111-111111111111';
+      await page.route('**/api/estimate-history*',route=>route.fulfill({json:route.request().url().includes('?')?
+        {estimate:{id,status:'scope_pending'},photos:[{photo_id:id,ordinal:1,variant:'original',status:'complete'}],revisions:[{revision:1,created_at:'2026-10-13',record:{input:{message:'Synthetic saved description'},displayed:{amount:null}}}],failures:[],events:[]}:
+        {estimates:[{id,status:'scope_pending',created_at:'2026-10-13',revision:1}],next:null}}));
+      await page.goto(`${url}/owner/history`);
+      await page.getByRole('button',{name:id,exact:true}).click();
+      await page.getByText('Revision 1',{exact:false}).click();
+      assert(await page.getByText(/Synthetic saved description/).isVisible());
+      await page.getByText('Linked photos and upload status',{exact:true}).click();
+      assert((await page.getByRole('link',{name:'Open authorized photo'}).getAttribute('href')).startsWith('/api/estimate-history/photo?'));
+      assert.equal(await page.locator('img').count(),0,'History does not prefetch photos');
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+      await page.screenshot({path:join(tmpdir(),`whs-private-history-${mobile?'mobile':'desktop'}.png`)});
+    }
     console.log(JSON.stringify({ viewport: mobile ? 'mobile-emulated/reduced-motion' : 'desktop', midpoint: true, views: true, reveal: true, scroll: true, loading: true, keyboard: true, photoBatches: 2, providers: 'mocked', bookingActions: 0 }));
     await context.close();
   }
   const guest = await browser.newContext();
-  for (const path of ['/', '/owner', '/staff-estimator', '/api/conversation']) assert.equal((await guest.request.get(url + path)).status(), 401);
+  for (const path of ['/', '/owner', '/staff-estimator', '/api/conversation','/api/estimate-history','/api/estimate-history/photo']) assert.equal((await guest.request.get(url + path)).status(), 401);
   await guest.close();
 } finally { await browser.close(); }

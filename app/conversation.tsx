@@ -6,11 +6,12 @@ import { optimizePhotoSelection, PHOTO_INPUT_ACCEPT, photoFailureMessage } from 
 import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
 import RevealedText from './revealed-text';
+import { ArchiveSession } from './lib/estimate-archive-client';
 import { customerAssumptions, customerEstimate, localComparison, ESTIMATE_INTRO, PHOTO_PENDING, SCOPE_PENDING, WINSTON_GREETING } from './lib/conversation-presentation';
 
-type Photo = { file: File; room: string; url: string; hash: string };
+type Photo = { file: File; original:File; archiveId:string; room: string; url: string; hash: string };
 type Message = { role: 'user' | 'winston'; text: string; photos?: number; room?: string };
-export default function Conversation({ owner = false }: { owner?: boolean }) {
+export default function Conversation({ owner = false, archiveEnabled = false }: { owner?: boolean; archiveEnabled?:boolean }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState(''); const [services, setServices] = useState<string[]>([]);
   const [room, setRoom] = useState(''); const [photos, setPhotos] = useState<Photo[]>([]);
@@ -29,6 +30,8 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
   const responseStart = useRef<HTMLElement>(null); const scrollSpace = useRef<HTMLDivElement>(null);
   const resultSection = useRef<HTMLElement>(null); const resultHeight = useRef(0);
   const scrolledDuringRequest = useRef(false);
+  const archive = useRef<ArchiveSession | null>(null);
+  const [allowanceReached,setAllowanceReached]=useState(false);
   useLayoutEffect(() => {
     const container = log.current, space = scrollSpace.current;
     if (!container || !space) return;
@@ -47,6 +50,7 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
     generation.current++; controller.current?.abort(); locked.current = false; photoLock.current = false;
     photoRef.current.forEach((p) => URL.revokeObjectURL(p.url)); photoRef.current = [];
     token.current = ''; sentPhotos.current = 0; retry.current = null;
+    archive.current=null; setAllowanceReached(false);
     setMessages([]); setText(''); setServices([]); setRoom(''); setPhotos([]); setResult(null);
     setChoices({}); setAnswers({}); setReplyTo(''); setBusy(false); setOptimizing(false); setUploadStatus(''); setFailedPhotos([]); setError('');
     scrolledDuringRequest.current = false;
@@ -66,11 +70,11 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
     if (optimized.ok === false) { setFailedPhotos(files); setUploadStatus(owner ? photoFailureMessage(optimized) : optimized.error); }
     else {
       const added: Photo[] = []; const hashes = new Set(photoRef.current.map((p) => p.hash));
-      for (const photo of optimized.photos) {
+      for (const [index,photo] of optimized.photos.entries()) {
         const digest = await crypto.subtle.digest('SHA-256', await photo.file.arrayBuffer());
         const hash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
         if (run !== generation.current) { added.forEach((p) => URL.revokeObjectURL(p.url)); return; }
-        if (!hashes.has(hash)) { hashes.add(hash); added.push({ file: photo.file, room: batchRoom, hash, url: URL.createObjectURL(photo.file) }); }
+        if (!hashes.has(hash)) { hashes.add(hash); added.push({ file: photo.file, original:files[index], archiveId:crypto.randomUUID(), room: batchRoom, hash, url: URL.createObjectURL(photo.file) }); }
       }
       photoRef.current = [...photoRef.current, ...added]; setPhotos(photoRef.current);
       setUploadStatus(`${photoRef.current.length}/10 photos ready. ${added.length < files.length ? 'Exact duplicate photos were kept once.' : 'Photos stay in this conversation.'}`);
@@ -84,15 +88,24 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
     setPendingCopy(submission.actions.length || submission.answers.length ? SCOPE_PENDING : form.getAll('photos').length ? PHOTO_PENDING : 'Winston is getting ready to help. One moment.');
     scrolledDuringRequest.current = false;
     resultHeight.current = resultSection.current?.offsetHeight ?? 0;
-    locked.current = true; setBusy(true); setError(''); retry.current = form;
+    locked.current = true; setBusy(true); setError(''); setAllowanceReached(false); retry.current = form;
     setResult((old) => old ? { ...old, baseline: null } : null);
     const run = generation.current; const abort = new AbortController(); controller.current = abort;
-    const timeout = setTimeout(() => abort.abort(), 60_000);
+    let timeout = setTimeout(() => abort.abort(), archiveEnabled ? 5 * 60_000 : 60_000);
     try {
+      if(archiveEnabled) {
+        archive.current ??= new ArchiveSession();
+        await archive.current.prepare(form,photoRef.current,abort.signal);
+        if(run!==generation.current)return;
+        clearTimeout(timeout);
+        timeout=setTimeout(() => abort.abort(),60_000);
+      }
       const response = await fetch('/api/conversation', { method: 'POST', body: form, signal: abort.signal });
       const data = await response.json() as ConversationResult;
       if (run !== generation.current) return;
+      if(data.errorCategory==='daily_limit')setAllowanceReached(true);
       if (!response.ok || data.error || !data.token || !Array.isArray(data.items) || !Array.isArray(data.questions)) throw new Error(data.error || 'Unable to finish this turn. Your entries are retained.');
+      if(archive.current && data.archiveRevision!==undefined)archive.current.revision=data.archiveRevision;
       token.current = data.token; sentPhotos.current = photoRef.current.length; retry.current = null;
       setResult(data); setChoices({}); setAnswers({}); setReplyTo(data.questions[0]?.id ?? '');
       setMessages((old) => [...old, { role: 'winston', text: !owner && data.baseline && !data.questions.length && !data.items.some((item) => item.choice === 'unresolved') ? ESTIMATE_INTRO : data.message }]);
@@ -170,7 +183,7 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
         {completed && owner && !!result.assumptions.length && <details><summary>Assumptions &amp; volume calculation</summary><ul>{result.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul><p>Loaded percentage / 100 × $550. A supported volume interval uses both endpoints. This is not a statistical prediction interval.</p></details>}
         {completed && !owner && !!customerAssumptions(result.assumptions).length && <details><summary>Assumptions</summary><ul>{customerAssumptions(result.assumptions).map((a, i) => <li key={i}>{a}</li>)}</ul></details>}
       </section>}
-      {error && <div role="alert" className={styles.error}><p>{error}</p><button type="button" disabled={busy || optimizing} onClick={() => retry.current && void transmit(retry.current)}>Retry last message</button></div>}
+      {error && <div role="alert" className={styles.error}><p>{error}</p>{allowanceReached && <a href="tel:+19494245605">Contact Wade Home Services: 949-424-5605</a>}<button type="button" disabled={busy || optimizing} onClick={() => retry.current && void transmit(retry.current)}>Retry last message</button></div>}
       <div ref={scrollSpace} aria-hidden="true" />
     </div>
     <footer className={styles.composer}>
@@ -185,8 +198,9 @@ export default function Conversation({ owner = false }: { owner?: boolean }) {
           <button type="submit" aria-label="Send message" disabled={busy || optimizing || (!text.trim() && photos.length === sentPhotos.current)}>Send <span aria-hidden="true">↑</span></button></div>
       </form>
       <p role="status" className={styles.upload}>{uploadStatus || 'Up to 10 photos across rooms. No booking or final quote is created.'}</p>
+      {archiveEnabled && <p className={styles.upload}>Your submitted photos and details are saved privately to prepare estimates and improve WHS pricing. They are not used for model training. <a href="/estimate-privacy">Storage and retention</a></p>}
       {!!failedPhotos.length && <button type="button" disabled={optimizing || busy} onClick={() => void addPhotos(failedPhotos)}>Retry photos</button>}
-      {owner && <a className={styles.staffLink} href="/staff-estimator">Staff estimator &amp; location options</a>}
+      {owner && <><a className={styles.staffLink} href="/staff-estimator">Staff estimator &amp; location options</a>{archiveEnabled && <> · <a className={styles.staffLink} href="/owner/history">Estimate history</a></>}</>}
     </footer>
   </main>;
 }
