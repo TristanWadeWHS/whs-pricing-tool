@@ -9,7 +9,7 @@ Production remains `90ae1c249069a9f5ff05018c48271403dfad33b2`, deployment
 `dpl_3Vm9usvhFAEeLj3nNFGA6FTuBy7H`, https://whs-pricing-tool-p8kg.vercel.app.
 No public launch, real customer photos, or Production changes are performed here.
 
-### Authorized Preview activation (2026-10-13, in progress)
+### Authorized Preview activation (2026-10-13)
 
 Tristan has now supplied exact uppercase `PRICER_DATABASE_URL` for dedicated
 `WHS-Pricer-History` and an independent `PRICER_VISITOR_SECRET`, both sensitive and
@@ -34,7 +34,38 @@ conversation/history/photo handlers; only OpenAI is mocked. It checks scope with
 clarification revisions, successful retry replay and staff-only access. No cleanup is run.
 Build-process verification does not itself certify native iPhone behavior or deployed
 HTTP/browser authentication. Shared history remains disabled until storage verification
-passes; these results will be recorded separately rather than assumed from configuration.
+passes; these results are recorded separately rather than assumed from configuration.
+
+Verified on `6bc781e6cfd9566ef89faf2403eb27de741303cb` in Vercel Preview:
+- Dedicated configured Neon database connected; the previously empty schema received
+  `db/estimate-history.sql` transactionally. `pricer_migration_ledger` records its normalized
+  SHA-256, target fingerprint, timestamp and initial source commit `3562302`. Later checks
+  returned `already_applied`; no existing data was reset, rewritten or removed.
+- Actual project OIDC authorized private presigned PUT, head and authenticated get.
+  Anonymous object reads were denied. The earlier metadata connector 404 was not a
+  deployed-access failure. No store association, website connection or existing photos changed.
+- The integration check exposed double JSON serialization at the Postgres.js parameter
+  boundary, missed by the earlier PGlite adapter. Explicit text-to-JSONB casts now preserve
+  objects for request/state/result/revision/event records. The regression uses the installed
+  driver's serializer and failed before the fix. No previously saved records were rewritten.
+- Isolated synthetic estimate `5c1cf985-bb6a-4379-8860-74b5fcd2bc38`: three revisions,
+  two ordered original/optimized pairs, pending-question price withholding, preserved answer,
+  idempotent retry with no extra model call, authenticated history/photo handlers and
+  unauthorized denial all passed against real storage. Analysis was mocked, not paid/live.
+- 22 affected local tests and typecheck passed. Failed synthetic diagnostic attempts are
+  retained; no cleanup ran. These fixtures are not customer estimates or training data.
+
+`PRICER_HISTORY_ENABLED=true` is authorized **Preview-only on this PR branch** after the
+checks above. Public customers and the shared Preview daily limit remain false. Optional
+`PRICER_VERIFY_HTTP_ORIGIN` on an explicit verifier build can target the exact enabled
+Preview URL: it checks real HTTP staff access, a new synthetic private original, a no-photo
+conversation save/retry (zero AI calls), and only that synthetic record's detail/photo.
+It never lists customer history. Deployed HTTP results and the final READY URL are recorded
+in PR #22; build-process tests alone do not certify them or native iPhone behavior.
+
+Rollback: use the preserved `d98752d` snapshot/Preview and set only this branch's Preview
+history flag false before redeploying if needed. Retain the database, migration ledger,
+synthetic records, Blob objects, credentials and all deployments; no destructive rollback.
 
 ### Preview connection follow-up (2026-10-13)
 
