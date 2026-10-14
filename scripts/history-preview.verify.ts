@@ -29,6 +29,9 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
   let db:ReturnType<typeof postgres>|undefined;
   try {
     const target=verifyPreviewTarget(process.env);
+    const staff={authorization:`Bearer ${process.env.INTERNAL_ACCESS_TOKEN}`};
+    const buffers:Buffer[]=[];
+    if(process.env.PRICER_VERIFY_HTTP_ONLY!=='true') {
     // Require OIDC, not an unnoticed static credential taking precedence.
     assert(!process.env.BLOB_READ_WRITE_TOKEN);
     stage='database_connection';
@@ -43,14 +46,12 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     vi.stubEnv('PRICER_HISTORY_ENABLED','true');
     vi.stubEnv('OPENAI_API_KEY','synthetic-no-provider-access');
     const origin='https://synthetic-preview.test',id=randomUUID();
-    const staff={authorization:`Bearer ${process.env.INTERNAL_ACCESS_TOKEN}`};
     stage='session';
     const created=await session(new Request(origin+'/api/estimate-session',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({id})}));
     assert.equal(created.status,200);
     console.log(`PRICER_VERIFY synthetic_estimate=${id}`);
     const cookie=created.headers.get('set-cookie')!.split(';')[0];
     const headers={origin,cookie,...staff};
-    const buffers:Buffer[]=[];
     const ids:string[]=[];
     for(let ordinal=1;ordinal<=2;ordinal++) {
       const bytes=await sharp({create:{width:64,height:64,channels:3,background:ordinal===1?'#008040':'#204080'}}).png().toBuffer();
@@ -127,16 +128,27 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
       const response=await photo(new Request(purl,{headers:staff}));assert.equal(response.status,200);assert(Buffer.from(await response.arrayBuffer()).equals(buffers[i]));
     }
     console.log(`PRICER_VERIFY PASS synthetic_estimate=${id} revisions=3 originals=2 optimized=2 idempotency=pass staff-handlers=pass analysis=mocked`);
+    }
+    if(process.env.PRICER_VERIFY_HTTP_ONLY==='true')assert(process.env.PRICER_VERIFY_HTTP_ORIGIN);
     if(process.env.PRICER_VERIFY_HTTP_ORIGIN) {
+      if(!buffers.length)buffers.push(await sharp({create:{width:64,height:64,channels:3,background:'#008040'}}).png().toBuffer());
       stage='deployed_http_target';
       const target=new URL(process.env.PRICER_VERIFY_HTTP_ORIGIN);
       assert(target.protocol==='https:' && target.hostname.startsWith('whs-pricing-tool-p8kg-') && target.hostname.endsWith('-wade-home-services.vercel.app') && target.pathname==='/');
       const base=target.origin,remoteId=randomUUID(),remotePhoto=randomUUID(),remoteRequest=randomUUID();
-      const request=(path:string,init:RequestInit={})=>fetch(base+path,{...init,redirect:'manual',headers:{origin:base,...staff,...init.headers}});
+      // Authenticate the Vercel boundary separately from the app's staff gate.
+      // This header is origin-scoped; it is never forwarded to Blob or redirects.
+      const platform={'x-vercel-trusted-oidc-idp-token':process.env.VERCEL_OIDC_TOKEN!};
+      const request=(path:string,init:RequestInit={})=>fetch(base+path,{...init,redirect:'manual',signal:AbortSignal.timeout(20000),headers:{origin:base,...platform,...staff,...init.headers}});
       stage='deployed_staff_auth';
-      assert.equal((await fetch(base+'/owner/history',{redirect:'manual'})).status,401);
-      assert.equal((await fetch(base+'/api/estimate-history?id='+remoteId,{redirect:'manual'})).status,401);
-      const owner=await request('/owner/history');assert.equal(owner.status,200);assert.match(owner.headers.get('cache-control')!,/no-store/);
+      const owner=await request('/owner/history');
+      if(owner.status!==200) {
+        const category=owner.headers.get('x-vercel-error')??'';
+        console.log(`PRICER_VERIFY http_staff_status=${owner.status} platform_category=${/^[A-Z_]{1,100}$/.test(category)?category:'unspecified'}`);
+      }
+      assert.equal(owner.status,200);assert.match(owner.headers.get('cache-control')!,/no-store/);
+      assert.equal((await fetch(base+'/owner/history',{redirect:'manual',headers:platform})).status,401);
+      assert.equal((await fetch(base+'/api/estimate-history?id='+remoteId,{redirect:'manual',headers:platform})).status,401);
       stage='deployed_session';
       const remoteSession=await request('/api/estimate-session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:remoteId})});
       assert.equal(remoteSession.status,200);
