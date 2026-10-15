@@ -205,7 +205,7 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
           <p className={styles.comparisonAmount}>{comparison.display}</p>
           <p className={styles.comparisonNote}>Indicative comparison using WHS&apos;s supplied $750-per-full-load benchmark for the same model-estimated volume. Actual competitor pricing varies. Not a guaranteed quote or a completed market survey.</p>
         </section>}
-        {completed && <BookingFollowUp key={result.token} submissionId={archive.current?.id} />}
+        {completed && <BookingFollowUp key={result.token} submissionId={archive.current?.id} token={result.token} />}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>
           {result.questions.map((q) => <div className={styles.question} key={q.id}><label htmlFor={q.id}>{q.text}</label><small>Photo {q.photoRef}: {q.evidence}</small>
