@@ -15,6 +15,8 @@ function configure(){
   for(const [k,v] of Object.entries({PRICER_HISTORY_ENABLED:'true',PRICER_DATABASE_URL:'synthetic',PRICER_VISITOR_SECRET:'synthetic-visitor-secret-at-least-32-characters',BLOB_READ_WRITE_TOKEN:'synthetic',PRICER_BLOB_PRIVATE_CONFIRMED:'true',OPENAI_API_KEY:'synthetic',INTERNAL_ACCESS_TOKEN:'synthetic'}))vi.stubEnv(k,v);
 }
 async function request(){
+  vi.spyOn(EstimateStore.prototype,'inquiry').mockResolvedValue({phone:'+12025550100',email:'synthetic@example.test',services:['mixed junk']});
+  vi.spyOn(EstimateStore.prototype,'setInquiryServices').mockResolvedValue();
   configure();const cookie=newVisitorCookie(),id=crypto.randomUUID();
   vi.spyOn(EstimateStore.prototype,'job').mockResolvedValue({id,visitor_id:cookie.id,revision:0,state:null,analyzed:false,status:'draft'});
   const form=new FormData();
@@ -28,6 +30,11 @@ it('blocks a fourth request before provider calls or photo storage',async()=>{
   const req=await request();vi.spyOn(EstimateStore.prototype,'reserve').mockRejectedValue(new ArchiveError('daily_limit',429));
   const response=await POST(req);expect(response.status).toBe(429);expect((await response.json()).errorCategory).toBe('daily_limit');
   expect(parse).not.toHaveBeenCalled();expect(archiveAnalysisPhotos).not.toHaveBeenCalled();
+});
+it('requires private contact capture before analysis and never calls providers for an incomplete inquiry',async()=>{
+  const req=await request();vi.mocked(EstimateStore.prototype.inquiry).mockRejectedValue(new ArchiveError('contact_required',409));
+  const response=await POST(req);expect(response.status).toBe(409);
+  expect((await response.json()).baseline).toBeNull();expect(parse).not.toHaveBeenCalled();expect(archiveAnalysisPhotos).not.toHaveBeenCalled();
 });
 it('archives exact submission, ordered photos, structured analysis and template before returning success',async()=>{
   const req=await request();vi.spyOn(EstimateStore.prototype,'reserve').mockResolvedValue({lease:crypto.randomUUID()});

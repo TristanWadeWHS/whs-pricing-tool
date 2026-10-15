@@ -27,6 +27,7 @@ afterAll(async()=>{vi.unstubAllEnvs();await local.db?.close();});
 it('persists actual SQL state through a confirmed-scope clarification turn',async()=>{
   for(const [key,value] of Object.entries({PRICER_HISTORY_ENABLED:'true',PRICER_DATABASE_URL:'synthetic',PRICER_VISITOR_SECRET:'synthetic-secret-with-at-least-32-characters',BLOB_READ_WRITE_TOKEN:'synthetic',PRICER_BLOB_PRIVATE_CONFIRMED:'true',OPENAI_API_KEY:'synthetic'}))vi.stubEnv(key,value);
   const cookie=newVisitorCookie(),id=randomUUID();await new EstimateStore().create(cookie.id,id);
+  await new EstimateStore().saveInquiry(cookie.id,id,{phone:'+12025550100',email:'synthetic@example.test',services:['mixed junk']});
   const evidence='Two closed synthetic boxes have contents that affect flattening.';
   const model={overlapUnresolved:false,items:[{id:'i_boxes',label:'Synthetic boxes',room:'Synthetic',photoRefs:[1],duplicateOf:null}],analysis:sampleAnalysis({observedFacts:[evidence]}),pricedItemIds:[] as string[],questions:[] as unknown[],conflicts:[],scopeChanges:[],loadedGroups:[] as unknown[]};
   const turn=async(revision:number,actions:unknown[])=>{

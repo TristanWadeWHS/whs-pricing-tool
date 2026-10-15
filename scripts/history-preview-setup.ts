@@ -6,7 +6,7 @@ export const checksum = (value: string) => createHash('sha256').update(value.rep
 
 export function verifyPreviewTarget(env: Record<string,string|undefined>) {
   if (env.VERCEL_ENV !== 'preview' || env.VERCEL_PROJECT_ID !== 'prj_jzzxkDJnnDt2Bu0HiJvwpmrwThPU' ||
-      env.VERCEL_GIT_COMMIT_REF !== 'codex/estimate-history-allowance' ||
+      !['codex/estimate-history-allowance','codex/customer-inquiry-phase-1'].includes(env.VERCEL_GIT_COMMIT_REF??'') ||
       env.PRICER_PUBLIC_CUSTOMERS_ENABLED !== 'false' || env.PRICER_DAILY_LIMIT_ENABLED !== 'false' ||
       env.PRICER_INTERNAL_AUTH_IS_STAFF !== 'true' || env.PRICER_BLOB_PRIVATE_CONFIRMED !== 'true' ||
       !env.INTERNAL_ACCESS_TOKEN || (env.PRICER_VISITOR_SECRET?.length ?? 0) < 32 ||

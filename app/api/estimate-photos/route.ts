@@ -13,6 +13,7 @@ export async function POST(req:Request) {
     requireSameOrigin(req); if(!historyConfigured())throw new Error('Unconfigured.');
     const v=visitor(req); if(!v)return NextResponse.json({error:'Estimate session required.'},{status:401,headers:{'Cache-Control':'no-store'}});
     const data=shape.parse(await smallJson(req)),store=new EstimateStore();
+    await store.inquiry(v,data.estimateId);
     const row=await store.photo(v,data.estimateId,{photo_id:data.photoId,ordinal:data.ordinal,variant:'original',pathname:photoPath(data.estimateId,data.photoId,'original'),
       content_type:data.mime,bytes:data.bytes,declared_hash:data.hash,status:'pending',tokens:0});
     if(data.action==='complete') {

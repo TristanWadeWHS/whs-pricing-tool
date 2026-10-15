@@ -38,16 +38,14 @@ function mockProviders() {
 const request = (): BookingRequest => ({ requestId: 'synthetic-request', confirmed: true, staffApproved: true, details: { ...details }, estimateContext: 'synthetic-staff-approved-scope' });
 
 describe('temporary promotion and protected follow-up', () => {
-  it('applies one shared 10% rate to original point/range amounts without compounding', async () => {
-    const t = token(); const offers = [];
+  it('retires all customer promotion requests without altering the standard baseline', async () => {
+    const t = token();
     for (const customerType of ['new', 'returning', 'new']) {
       const r = await post({ action: 'promotion', token: t, customerType });
-      expect(r.response.status).toBe(200); expect(r.response.headers.get('cache-control')).toBe('no-store');
-      expect(r.body.promotion).toMatchObject({ rate: 0.1, original: { low: 330, high: 330 }, discount: { low: 33, high: 33 }, total: { low: 297, high: 297 }, provisional: true, application: 'illustration' });
-      offers.push(r.body.promotion); expect(r.body.bookingEnabled).toBe(false);
+      expect(r.response.status).toBe(410); expect(r.response.headers.get('cache-control')).toBe('no-store');
+      expect(r.body.promotion).toBeUndefined();expect(JSON.stringify(r.body)).not.toMatch(/297|\$/);
     }
-    expect(offers[0]).toEqual(offers[1]); expect(offers[1]).toEqual(offers[2]); expect(TEMPORARY_PROMOTION_RATE).toBe(0.1);
-    expect(calculatePromotion(volumeBaseline(60, '50-70%'), 130, false)).toMatchObject({ original: { low: 275, high: 385 }, discount: { low: 27.5, high: 38.5 }, total: { low: 247.5, high: 346.5 } });
+    expect(volumeBaseline(60,'60%')).toMatchObject({low:330,high:330});
   });
   it('never discounts below a known mandatory minimum and flags unknown minimums/exceptional work', () => {
     expect(calculatePromotion(volumeBaseline(10, '10%'), 130, false)).toMatchObject({ original: { low: 130, high: 130 }, discount: { low: 0, high: 0 }, total: { low: 130, high: 130 } });
@@ -58,11 +56,11 @@ describe('temporary promotion and protected follow-up', () => {
   });
   it('does not accept client prices, approval, invalid customer types or unresolved/tampered estimates', async () => {
     for (const extra of [{ amount: 1 }, { staffApproved: true }, { customerType: 'invented' }]) {
-      expect((await post({ action: 'promotion', token: token(), customerType: 'new', ...extra })).response.status).toBe(400);
+      expect((await post({ action: 'promotion', token: token(), customerType: 'new', ...extra })).response.status).toBe(410);
     }
     const waiting = await post({ action: 'promotion', token: token(false), customerType: 'new' });
-    expect(waiting.response.status).toBe(409); expect(JSON.stringify(waiting.body)).not.toMatch(/\$|330|297/);
-    expect((await post({ action: 'promotion', token: `${token()}x`, customerType: 'new' })).response.status).toBe(400);
+    expect(waiting.response.status).toBe(410); expect(JSON.stringify(waiting.body)).not.toMatch(/\$|330|297/);
+    expect((await post({ action: 'promotion', token: `${token()}x`, customerType: 'new' })).response.status).toBe(410);
   });
   it('validates the chosen contact method, real dates and future Pacific preferences', () => {
     expect(bookingDetailsSchema.safeParse(details).success).toBe(true);
@@ -76,10 +74,10 @@ describe('temporary promotion and protected follow-up', () => {
   it('keeps Preview inert even with valid confirmed details; no details are echoed', async () => {
     expect(getBookingProviders()).toBeNull();
     const r = await post({ action: 'book', token: token(), customerType: 'new', details, confirmed: true, requestId: '00000000-0000-4000-8000-000000000001' });
-    expect(r.response.status).toBe(503); expect(r.body.status).toBe('disabled');
+    expect(r.response.status).toBe(410);
     expect(JSON.stringify(r.body)).not.toContain(details.name); expect(JSON.stringify(r.body)).not.toContain(details.email);
     expect(r.body.eventId).toBeUndefined();
-    expect((await post({ action: 'book', token: token(), customerType: 'new', details, confirmed: false, requestId: '00000000-0000-4000-8000-000000000001' })).response.status).toBe(400);
+    expect((await post({ action: 'book', token: token(), customerType: 'new', details, confirmed: false, requestId: '00000000-0000-4000-8000-000000000001' })).response.status).toBe(410);
   });
   it('protects the new API with existing auth and no-store', () => {
     vi.stubEnv('INTERNAL_ACCESS_TOKEN', 'synthetic');

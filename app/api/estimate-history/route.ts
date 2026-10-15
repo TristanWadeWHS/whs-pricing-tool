@@ -17,7 +17,7 @@ export async function GET(req:Request) {
       const failures=await store.sql('SELECT category,created_at FROM pricer_failures WHERE estimate_id=$1 ORDER BY id DESC LIMIT 20',[id]);
       const events=await store.sql('SELECT record,created_at FROM pricer_events WHERE estimate_id=$1 ORDER BY created_at DESC LIMIT 48',[id]);
       const photos=(await store.photos(id)).map(({pathname:_,declared_hash:__,...photo})=>photo);
-      return reply({estimate,revisions,failures,events,photos,nextBefore:revisions.length===10?revisions.at(-1)!.revision:null});
+      return reply({estimate,revisions,failures,events,photos,originalQuote:await store.originalQuote(id),nextBefore:revisions.length===10?revisions.at(-1)!.revision:null});
     }
     const cursor=p.get('before')??'9999-01-01T00:00:00.000Z',cursorId=p.get('cursorId')??'ffffffff-ffff-4fff-bfff-ffffffffffff';
     if(!Number.isFinite(Date.parse(cursor))||!UUID.test(cursorId))throw new Error();
