@@ -7,8 +7,10 @@ export function proxy(req: NextRequest) {
   if (isPublicAsset(pathname)) {
     return NextResponse.next();
   }
+  // This exact server-to-server route validates its signed body itself.
+  if(pathname==='/api/booking/photo-export' && req.method==='POST')return NextResponse.next();
   // Explicit future-launch gate. Shared Preview remains protected by default.
-  if (publicEnabled() && ['/', '/estimate-privacy', '/wade-home-services-logo.png', '/api/conversation', '/api/estimate-session', '/api/estimate-photos', '/api/booking'].includes(pathname)) {
+  if (publicEnabled() && ['/', '/estimate-privacy', '/wade-home-services-logo.png', '/api/conversation', '/api/estimate-session', '/api/estimate-photos', '/api/booking', '/api/booking/availability', '/api/booking/request'].includes(pathname)) {
     if (!historyConfigured() || process.env.PRICER_INTERNAL_AUTH_IS_STAFF !== 'true') return protectedResponse('Public estimate configuration is incomplete.',503);
     if (!['GET','HEAD'].includes(req.method) && (req.headers.get('origin')!==`${req.nextUrl.protocol}//${req.headers.get('host')||req.nextUrl.host}` || req.headers.get('sec-fetch-site')==='cross-site'))return protectedResponse('Cross-origin request rejected.',403);
     const response=NextResponse.next(); response.headers.set('cache-control','no-store'); return response;
