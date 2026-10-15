@@ -7,6 +7,7 @@ import styles from './conversation.module.css';
 import BookingFollowUp from './booking-follow-up';
 import RevealedText from './revealed-text';
 import { ArchiveSession } from './lib/estimate-archive-client';
+import { inquirySchema } from './lib/inquiry-schema';
 import { customerAssumptions, customerEstimate, localComparison, ESTIMATE_INTRO, PHOTO_PENDING, SCOPE_PENDING, WINSTON_GREETING } from './lib/conversation-presentation';
 
 type Photo = { file: File; original:File; archiveId:string; room: string; url: string; hash: string };
@@ -32,6 +33,9 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
   const scrolledDuringRequest = useRef(false);
   const archive = useRef<ArchiveSession | null>(null);
   const [allowanceReached,setAllowanceReached]=useState(false);
+  const [contact,setContact]=useState({phone:'',email:''});
+  const [contactSaved,setContactSaved]=useState(false);
+  const [contactError,setContactError]=useState('');
   useLayoutEffect(() => {
     const container = log.current, space = scrollSpace.current;
     if (!container || !space) return;
@@ -51,12 +55,14 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
     photoRef.current.forEach((p) => URL.revokeObjectURL(p.url)); photoRef.current = [];
     token.current = ''; sentPhotos.current = 0; retry.current = null;
     archive.current=null; setAllowanceReached(false);
+    setContact({phone:'',email:''});setContactSaved(false);setContactError('');
     setMessages([]); setText(''); setServices([]); setRoom(''); setPhotos([]); setResult(null);
     setChoices({}); setAnswers({}); setReplyTo(''); setBusy(false); setOptimizing(false); setUploadStatus(''); setFailedPhotos([]); setError('');
     scrolledDuringRequest.current = false;
     composer.current?.focus({ preventScroll: true });
   }
   async function addPhotos(files: File[]) {
+    if(!contactSaved)return;
     if (!files.length || locked.current || photoLock.current) return;
     if (photoRef.current.length + files.length > 10) { setUploadStatus('This estimate supports ten photos total. Start a separate estimate for more photos.'); return; }
     photoLock.current = true; setOptimizing(true); setFailedPhotos([]); setUploadStatus(`Preparing ${files.length} photo${files.length === 1 ? '' : 's'}...`);
@@ -83,6 +89,7 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
     finally { if (run === generation.current) { photoLock.current = false; setOptimizing(false); } }
   }
   async function transmit(form: FormData) {
+    if(!contactSaved)return;
     if (locked.current || photoLock.current) return;
     const submission = JSON.parse(String(form.get('submission')));
     setPendingCopy(submission.actions.length || submission.answers.length ? SCOPE_PENDING : form.getAll('photos').length ? PHOTO_PENDING : 'Winston is getting ready to help. One moment.');
@@ -117,6 +124,14 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
     if (locked.current || photoLock.current) return;
     if (mode === 'service' && (!service || services.includes(service[0]))) return;
     const selectedServices = service ? [...services, service[0]] : services;
+    if(!contactSaved) {
+      if(service) {
+        setServices(selectedServices);
+        setMessages(old=>[...old,{role:'user',text:`I'd like help with ${service[1]}.`},
+          {role:'winston',text:"Happy to help! First, what's your phone number and email? I'll save them with your inquiry, then we'll look at photos and scope. This isn't a booking."}]);
+      }
+      return;
+    }
     const message = service ? `I'd like help with ${service[1]}.` : mode === 'message' ? text.trim() : mode === 'scope' ? 'Please use my confirmed scope choices.' : 'Here are my answers.';
     if (!message && photos.length === sentPhotos.current) return;
     const form = new FormData(); if (token.current) form.set('token', token.current);
@@ -129,6 +144,24 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
     if (mode === 'message') setText('');
     if (service) setServices(selectedServices);
     void transmit(form);
+  }
+  async function captureContact(event:React.FormEvent) {
+    event.preventDefault();if(locked.current)return;
+    const parsed=inquirySchema.safeParse({...contact,services});
+    if(!parsed.success){setContactError(parsed.error.issues[0]?.message??'Check your contact details.');return;}
+    if(!archiveEnabled){setContactError('Private inquiry saving is unavailable in this Preview. Please call WHS.');return;}
+    locked.current=true;setBusy(true);setContactError('');
+    setPendingCopy('Saving your private inquiry. One moment.');
+    const run=generation.current,abort=new AbortController();controller.current=abort;
+    const timeout=setTimeout(()=>abort.abort(),30_000);
+    try {
+      archive.current??=new ArchiveSession();
+      await archive.current.capture(parsed.data,abort.signal);
+      if(run!==generation.current)return;
+      setContactSaved(true);setContact({phone:'',email:''});
+      setMessages(old=>[...old,{role:'winston',text:"Thanks! Your inquiry is saved. Add photos and tell me what needs to go. You can add another service too. No appointment has been booked."}]);
+    }catch{if(run===generation.current)setContactError('Your inquiry could not be saved. Your entries are retained; please retry.');}
+    finally{clearTimeout(timeout);if(run===generation.current){locked.current=false;setBusy(false);}}
   }
   const pending = result?.items.filter((item) => item.choice === 'unresolved') ?? [];
   const completed = !busy && !error && !pending.length && !result?.questions.length && !!result?.baseline;
@@ -172,7 +205,7 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
           <p className={styles.comparisonAmount}>{comparison.display}</p>
           <p className={styles.comparisonNote}>Indicative comparison using WHS&apos;s supplied $750-per-full-load benchmark for the same model-estimated volume. Actual competitor pricing varies. Not a guaranteed quote or a completed market survey.</p>
         </section>}
-        {completed && <BookingFollowUp key={result.token} customerView={!owner} token={result.token} scope={result.items.filter((i) => i.choice === 'included').map((i) => i.label)} onMessage={(role, text) => setMessages((old) => [...old, { role, text }])} />}
+        {completed && <BookingFollowUp key={result.token} submissionId={archive.current?.id} />}
         {pending.length > 0 ? scopeEditor() : result.items.length > 0 && <details><summary>Confirmed scope · {result.items.filter((i) => i.choice === 'included').length} included groups</summary>{scopeEditor()}</details>}
         {result.questions.length > 0 && <form onSubmit={(e) => { e.preventDefault(); send('answers'); }}><fieldset disabled={busy || optimizing}>
           {result.questions.map((q) => <div className={styles.question} key={q.id}><label htmlFor={q.id}>{q.text}</label><small>Photo {q.photoRef}: {q.evidence}</small>
@@ -190,6 +223,17 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
       <div className={styles.statusSlot} role="status" aria-live="polite" aria-atomic="true">
         {busy && <div className={styles.busy}><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span><span>{pendingCopy}</span></div>}
       </div>
+      {!contactSaved && (services.length ? <form onSubmit={captureContact} aria-label="Contact details">
+        <fieldset disabled={busy} className={styles.contactCapture}>
+          <legend>Where can our team reach you?</legend>
+          <label htmlFor="inquiry-phone">Phone number</label><input id="inquiry-phone" type="tel" autoComplete="tel" maxLength={30} required value={contact.phone} onChange={e=>setContact(old=>({...old,phone:e.target.value}))} />
+          <label htmlFor="inquiry-email">Email</label><input id="inquiry-email" type="email" autoComplete="email" maxLength={254} required value={contact.email} onChange={e=>setContact(old=>({...old,email:e.target.value}))} />
+          <button type="submit">Save inquiry &amp; continue</button>
+        </fieldset>
+        <p className={styles.upload}>Saved privately with your selected services and estimate. No booking or notification is created.</p>
+        {contactError && <p role="alert">{contactError}</p>}
+      </form> : <p>Choose a service above to get started.</p>)}
+      {contactSaved && <>
       {!!photos.length && <details><summary>{photos.length}/10 photos in this conversation</summary><div className={styles.photos}>{photos.map((p, i) => <figure key={p.hash}><img src={p.url} alt={`Photo ${i + 1}, ${p.room}`} width="68" height="68" /><figcaption>{i + 1} · {p.room}</figcaption></figure>)}</div></details>}
       {replyTo && <div className={styles.reply}><span>Replying to: {result?.questions.find((q) => q.id === replyTo)?.text}</span><button type="button" disabled={busy} onClick={() => setReplyTo('')}>New topic</button></div>}
       <form onSubmit={(e) => { e.preventDefault(); send(); }}><label className={styles.srOnly} htmlFor="message">Message Winston</label><textarea ref={composer} id="message" maxLength={replyTo ? 400 : 1000} disabled={busy} placeholder={replyTo ? 'Your answer, or "Not sure"...' : 'Tell Winston what needs to go...'} value={text} onChange={(e) => setText(e.target.value)} />
@@ -200,6 +244,8 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
       <p role="status" className={styles.upload}>{uploadStatus || 'Up to 10 photos across rooms. No booking or final quote is created.'}</p>
       {archiveEnabled && <p className={styles.upload}>Your submitted photos and details are saved privately to prepare estimates and improve WHS pricing. They are not used for model training. <a href="/estimate-privacy">Storage and retention</a></p>}
       {!!failedPhotos.length && <button type="button" disabled={optimizing || busy} onClick={() => void addPhotos(failedPhotos)}>Retry photos</button>}
+      </>}
+      {!contactSaved && <a className={styles.staffLink} href="/estimate-privacy">Privacy and retention</a>}
       {owner && <><a className={styles.staffLink} href="/staff-estimator">Staff estimator &amp; location options</a>{archiveEnabled && <> · <a className={styles.staffLink} href="/owner/history">Estimate history</a></>}</>}
     </footer>
   </main>;

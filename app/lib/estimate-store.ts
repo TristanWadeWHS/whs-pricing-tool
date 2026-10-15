@@ -4,6 +4,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { allowanceEnabled, boundedSetting, historyConfigured, LIMIT_MESSAGE } from './estimate-access';
 import type { ConversationState, ConversationResult, ConversationModel } from './conversation-schema';
 import { customerEstimate, localComparison, ESTIMATE_INTRO } from './conversation-presentation';
+import { inquirySchema, type Inquiry } from './inquiry-schema';
 
 export type Query = <T extends Record<string, unknown>>(text: string, values?: unknown[]) => Promise<T[]>;
 let client: ReturnType<typeof postgres> | undefined;
@@ -17,6 +18,37 @@ export type ArchiveJob = { id: string; visitor_id: string; revision: number; sta
 export type PhotoRecord = { photo_id: string; ordinal: number; variant: 'original'|'analysis'; pathname:string; content_type:string; bytes:number; declared_hash:string; status:string; tokens:number };
 export class EstimateStore {
   constructor(public sql: Query=query) {}
+  async saveInquiry(v:string,id:string,input:Inquiry) {
+    const inquiry=inquirySchema.parse(input);
+    await this.job(v,id);
+    // Contact details never enter signed model context, model prompts or log messages.
+    // First capture is immutable; a retry must match rather than overwrite a saved inquiry.
+    await this.sql(`INSERT INTO pricer_events(estimate_id,event_key,record)
+      VALUES($1,'inquiry',$2::text::jsonb) ON CONFLICT DO NOTHING`,[id,JSON.stringify({...inquiry,kind:'inquiry',source:'AI Pricer'})]);
+    const saved=await this.inquiry(v,id);
+    if(saved.phone!==inquiry.phone || saved.email!==inquiry.email)throw new ArchiveError('contact_conflict');
+    await this.setInquiryServices(v,id,inquiry.services);
+  }
+  async inquiry(v:string,id:string) {
+    await this.job(v,id);
+    const [row]=await this.sql<{record:Inquiry}>("SELECT record FROM pricer_events WHERE estimate_id=$1 AND event_key='inquiry'",[id]);
+    if(!row)throw new ArchiveError('contact_required',409);
+    return row.record;
+  }
+  async setInquiryServices(v:string,id:string,services:string[]) {
+    await this.inquiry(v,id);
+    await this.sql(`UPDATE pricer_events SET record=jsonb_set(record,'{services}',$2::text::jsonb)
+      WHERE estimate_id=$1 AND event_key='inquiry'`,[id,JSON.stringify(services)]);
+  }
+  async originalQuote(id:string) {
+    // Append-only revisions are authoritative: later clarification must not replace
+    // the first completed provisional quote used by a future booking handoff.
+    const [quote]=await this.sql(`SELECT revision,created_at,record->'displayed' AS displayed,
+      record->'result'->'baseline' AS baseline,record->'versions' AS versions
+      FROM pricer_revisions WHERE estimate_id=$1 AND record->'displayed'->>'amount' IS NOT NULL
+      ORDER BY revision ASC LIMIT 1`,[id]);
+    return quote??null;
+  }
   async create(v: string, id: string) {
     await this.sql('SELECT pricer_create($1,$2)',[v,id]);
     return this.job(v,id);

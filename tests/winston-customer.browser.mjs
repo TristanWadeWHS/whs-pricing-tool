@@ -18,8 +18,9 @@ try {
     const errors = [], submissions = [], pending = [], promotions = [];
     const archiveCalls=[];
     const originalUploads=[];
+    let failContact=true;
     if(process.env.ARCHIVE_SMOKE==='1') {
-      await page.route('**/api/estimate-session',route=>{archiveCalls.push(route.request().postDataJSON());return route.fulfill({json:{enabled:true}});});
+      await page.route('**/api/estimate-session',route=>{const data=route.request().postDataJSON();archiveCalls.push(data);if(data.inquiry&&failContact){failContact=false;return route.fulfill({status:503,json:{error:'Synthetic save failure'}});}return route.fulfill({json:{enabled:true}});});
       await page.route('**/api/estimate-photos',route=>{const data=route.request().postDataJSON();archiveCalls.push(data);return route.fulfill({json:data.action==='authorize'?{presignedUrl:`https://synthetic-blob.invalid/${data.photoId}`}:{complete:true}});});
       await page.route('https://synthetic-blob.invalid/**',route=>{
         if(route.request().method()==='PUT')originalUploads.push({method:'PUT',bytes:route.request().postDataBuffer()?.length,type:route.request().headers()['content-type']});
@@ -35,11 +36,7 @@ try {
       const response = await new Promise((resolve) => pending.push(resolve));
       await route.fulfill(response).catch(() => {});
     });
-    await page.route('**/api/booking', (route) => {
-      const data = route.request().postDataJSON(); promotions.push(data); assert.equal(data.action, 'promotion');
-      return route.fulfill({ json: { customerType: data.customerType, message: 'Welcome! We are happy to help.', bookingEnabled: false, bookingNotice: 'Booking unavailable.',
-        promotion: { rate: 0.1, application: 'illustration', provisional: true, original: { low: 252, high: 380 }, discount: { low: 25.2, high: 38 }, total: { low: 226.8, high: 342 }, reasons: ['Eligibility and minimums require confirmation.'] } } });
-    });
+    await page.route('**/api/booking', route => { promotions.push(true); return route.abort(); });
     const log = page.getByRole('log');
     const composer = page.getByLabel('Message Winston', { exact: true });
     const status = page.locator('footer [role=status]').first();
@@ -52,6 +49,22 @@ try {
       assert.equal(await status.locator('i').count(), 0);
     }
     async function send(text) { await composer.fill(text); await page.getByRole('button', { name: 'Send message', exact: true }).click(); await page.waitForFunction(() => document.querySelector('textarea').disabled); }
+    async function capture() {
+      const shouldRetry=failContact;
+      assert.equal(await page.getByLabel('Choose photos from your library',{exact:true}).count(),0);
+      await page.getByLabel('Phone number',{exact:true}).fill('(202) 555-0100');
+      await page.getByLabel('Email',{exact:true}).fill('synthetic@example.test');
+      await page.getByRole('button',{name:'Save inquiry & continue',exact:true}).click();
+      if(shouldRetry) {
+        await page.getByRole('alert').filter({hasText:'Your inquiry could not be saved'}).waitFor();
+        assert.equal(await page.getByLabel('Email',{exact:true}).inputValue(),'synthetic@example.test');
+        assert.equal(await page.getByLabel('Choose photos from your library',{exact:true}).count(),0);
+        await page.screenshot({path:join(tmpdir(),`whs-inquiry-${mobile?'mobile':'desktop'}.png`)});
+        await page.getByRole('button',{name:'Save inquiry & continue',exact:true}).click();
+      }
+      await composer.waitFor();
+      assert.equal(await page.getByLabel('Phone number',{exact:true}).count(),0);
+    }
     await page.goto(url);
     assert.equal(await position(), 0);
     const headerLogo = page.locator('header img');
@@ -74,11 +87,16 @@ try {
     await page.screenshot({ path: join(tmpdir(), `whs-customer-opening-${mobile ? 'mobile' : 'desktop'}.png`) });
 
     await page.getByRole('button', { name: 'Junk pickup', exact: true }).click();
+    assert.equal(submissions.length,0,'No analysis before private contact capture');
+    await page.getByRole('button',{name:'Furniture',exact:true}).click();
+    await capture();
+    await send('Synthetic service inquiry.');
     await page.waitForFunction(() => document.querySelector('textarea').disabled);
     const long = 'Happy to help with junk pickup! ' + 'A synthetic completed response for checking word reveal and scrolling. '.repeat(30);
     await finish(result({ message: long }));
     assert.deepEqual((await animationState()).map((a) => a.start), initialAnimation.map((a) => a.start), 'Opening does not replay');
-    assert.deepEqual(submissions[0].data.services, ['mixed junk']);
+    assert.deepEqual(submissions[0].data.services, ['mixed junk','furniture']);
+    assert(!JSON.stringify(submissions).includes('synthetic@example.test'),'Contact excluded from model multipart');
     const response = page.locator('[data-speaker=winston]').last();
     const offset = await response.evaluate((e) => e.getBoundingClientRect().top - e.closest('[role=log]').getBoundingClientRect().top);
     assert(Math.abs(offset - 16) < 2);
@@ -126,7 +144,7 @@ try {
     await comparison.getByText('$343.64\u2013$518.18', { exact: true }).waitFor();
     assert((await comparison.innerText()).includes('Actual competitor pricing varies'));
     assert(!(await comparison.innerText()).includes('pricing this higher'));
-    assert(await comparison.evaluate((e) => e.previousElementSibling.textContent.includes('$316') && e.nextElementSibling.textContent.includes('New here or welcome back?')));
+    assert(await comparison.evaluate((e) => e.previousElementSibling.textContent.includes('$316') && e.nextElementSibling.textContent.includes('Book the Job')));
     assert(await page.getByText('Specific dense material needs handling review.', { exact: true }).isVisible());
     assert.equal(await page.getByRole('heading', { name: 'A little thank-you from our team' }).count(), 0);
     await page.getByRole('heading', { name: '$316', exact: true }).scrollIntoViewIfNeeded();
@@ -135,10 +153,13 @@ try {
     await comparison.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(tmpdir(), `whs-customer-comparison-${mobile ? 'mobile' : 'desktop'}.png`) });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    const customer = page.getByRole('button', { name: 'New customer', exact: true });
-    await customer.focus(); await page.keyboard.press('Space');
-    await page.getByText('$284.40', { exact: true }).waitFor();
-    assert.equal(promotions.length, 1); assert.equal(await page.getByRole('form', { name: 'Booking preferences' }).count(), 0);
+    assert.equal(await page.getByRole('button',{name:'New customer',exact:true}).count(),0);
+    await page.getByRole('button',{name:'Book the Job',exact:true}).click();
+    await page.getByRole('heading',{name:'Booking preview only',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Book the Job',exact:true}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:join(tmpdir(),`whs-booking-placeholder-${mobile?'mobile':'desktop'}.png`)});
+    assert.equal(await page.getByRole('link',{name:'Have Questions? Call Now',exact:true}).getAttribute('href'),'tel:+19494245605');
+    assert.equal(promotions.length, 0); assert.equal(await page.getByRole('form', { name: 'Booking preferences' }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Confirm booking request' }).count(), 0);
     await send('Synthetic point estimate.');
     assert.equal(await comparison.count(), 0, 'Hide previous comparison during new request');
@@ -158,6 +179,7 @@ try {
     assert.equal(await comparison.count(), 0);
 
     await page.goto(`${url}/owner`);
+    await page.getByRole('button',{name:'Junk pickup',exact:true}).click();await capture();
     assert.equal(await page.getByLabel('Room or photo batch').count(), 1);
     assert.equal(await page.getByRole('link', { name: /Staff estimator/ }).count(), 1);
     await send('Synthetic owner estimate.'); await finish(final);

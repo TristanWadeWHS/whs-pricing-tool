@@ -1,4 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
+vi.mock('server-only',()=>({}));
 import { NextRequest } from 'next/server';
 import { proxy } from '../proxy';
 import { INTERNAL_SESSION_COOKIE, INTERNAL_SESSION_SECONDS } from '../app/lib/internal-session';

@@ -6,7 +6,7 @@ import postgres from 'postgres';
 import sharp from 'sharp';
 import { head, get } from '@vercel/blob';
 import { NextRequest } from 'next/server';
-import { applyHistoryMigration, verifyPreviewTarget } from './history-preview-setup';
+import { applyHistoryMigration, verifyPreviewTarget, checksum } from './history-preview-setup';
 vi.mock('server-only',()=>({}));
 const parse=vi.hoisted(()=>vi.fn());
 // Only this isolated verifier mocks analysis. No deployed mock route or provider fallback.
@@ -40,7 +40,11 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     assert.equal(identity.name,target.database);
     stage='database_migration';
     const source=await readFile(new URL('../db/estimate-history.sql',import.meta.url),'utf8');
-    const migration=await db.begin(tx=>applyHistoryMigration(async(q,v=[])=>await tx.unsafe(q,v as never[]) as unknown as Record<string,unknown>[],source,target.identity,process.env.VERCEL_GIT_COMMIT_SHA!));
+    let migration='verified-existing';
+    if(process.env.VERCEL_GIT_COMMIT_REF==='codex/customer-inquiry-phase-1') {
+      const [ledger]=await db`SELECT checksum,target_identity FROM pricer_migration_ledger WHERE version='estimate-history-v1'`;
+      assert.equal(ledger?.checksum,checksum(source));assert.equal(ledger?.target_identity,target.identity);
+    } else migration=await db.begin(tx=>applyHistoryMigration(async(q,v=[])=>await tx.unsafe(q,v as never[]) as unknown as Record<string,unknown>[],source,target.identity,process.env.VERCEL_GIT_COMMIT_SHA!));
     console.log(`PRICER_VERIFY database=${migration} target=dedicated-configured-neon`);
     // Process-local flag only, after successful schema setup. Shared Preview stays disabled.
     vi.stubEnv('PRICER_HISTORY_ENABLED','true');
@@ -52,6 +56,10 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     console.log(`PRICER_VERIFY synthetic_estimate=${id}`);
     const cookie=created.headers.get('set-cookie')!.split(';')[0];
     const headers={origin,cookie,...staff};
+    stage='inquiry_capture';
+    const contact={phone:'+12025550100',email:'synthetic@example.test',services:['mixed junk']};
+    const capture=()=>session(new Request(origin+'/api/estimate-session',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({id,inquiry:contact})}));
+    assert.equal((await capture()).status,200);assert.equal((await capture()).status,200);
     const ids:string[]=[];
     for(let ordinal=1;ordinal<=2;ordinal++) {
       const bytes=await sharp({create:{width:64,height:64,channels:3,background:ordinal===1?'#008040':'#204080'}}).png().toBuffer();
@@ -120,6 +128,10 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
     assert.equal((await history(new Request(url))).status,403);
     const detail=await history(new Request(url,{headers:staff}));assert.equal(detail.status,200);assert.match(detail.headers.get('cache-control')!,/no-store/);
     const saved=await detail.json();assert.equal(saved.revisions.length,3);assert.equal(saved.photos.length,4);
+    assert.equal(saved.events.filter((e:{record:{kind?:string}})=>e.record.kind==='inquiry').length,1);
+    assert.equal(saved.events.find((e:{record:{kind?:string}})=>e.record.kind==='inquiry').record.email,contact.email);
+    assert(!JSON.stringify(parse.mock.calls).includes(contact.email));
+    assert(!JSON.stringify(saved.revisions).includes(contact.email));
     assert.deepEqual(saved.photos.map((p:{ordinal:number;variant:string})=>[p.ordinal,p.variant]),[[1,'analysis'],[1,'original'],[2,'analysis'],[2,'original']]);
     assert.equal(saved.revisions[0].record.state.answers[0].text,answered.answers[0].text);
     for(let i=0;i<ids.length;i++) for(const variant of ['original','analysis']) {
@@ -155,6 +167,10 @@ it('explicit authorized Preview storage setup and isolated synthetic verificatio
       console.log(`PRICER_VERIFY session_http=${remoteSession.status} enabled=${sessionBody.enabled===true} config_missing=${sessionBody.error==='Private estimate storage is not configured. Your entries are retained.'} visitor_cookie_present=${remoteSession.headers.get('set-cookie')?.includes('__Host-whs-estimate-visitor=')===true}`);
       assert.equal(remoteSession.status,200);
       const remoteCookie=remoteSession.headers.get('set-cookie')!.split(/,(?=\s*__Host-)/).find(c=>c.trim().startsWith('__Host-whs-estimate-visitor='))!.trim().split(';')[0];
+      stage='deployed_inquiry';
+      const contact={phone:'+12025550100',email:'synthetic@example.test',services:['mixed junk']};
+      const capture=()=>request('/api/estimate-session',{method:'POST',headers:{cookie:remoteCookie,'content-type':'application/json'},body:JSON.stringify({id:remoteId,inquiry:contact})});
+      assert.equal((await capture()).status,200);assert.equal((await capture()).status,200);
       const photoData={estimateId:remoteId,photoId:remotePhoto,ordinal:1,mime:'image/png',bytes:buffers[0].length,hash:createHash('sha256').update(buffers[0]).digest('hex')};
       const remoteUpload=(action:string)=>request('/api/estimate-photos',{method:'POST',headers:{cookie:remoteCookie,'content-type':'application/json'},body:JSON.stringify({...photoData,action})});
       stage='deployed_oidc_upload';

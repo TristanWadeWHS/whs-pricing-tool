@@ -77,6 +77,12 @@
 .contactChoices label,.confirmBooking { display:flex; align-items:flex-start; gap:8px; }
 .followUp input[type=radio],.followUp input[type=checkbox] { width:18px; height:18px; flex:0 0 18px; margin:3px 0; }
 .bookingActions button { font-size:14px; min-height:44px; }.followUp button:disabled { opacity:.55; cursor:not-allowed; }
+.bookingActions { display:grid; grid-template-columns:1fr 1fr; align-items:center; }
+.bookingActions a { color:#193d2b; font-size:14px; text-align:center; }
+.contactCapture { border:0; padding:0; margin:0; min-width:0; }
+.contactCapture legend { font-weight:700; font-size:16px; }
+.contactCapture label { font-size:14px; }
+.contactCapture input { font-size:16px; margin:4px 0 8px; }
 @keyframes dotHighlight { 0%,32% { opacity:1; } 33%,100% { opacity:.25; } }
 @media(prefers-reduced-motion:reduce) { .dots i,.revealWord,.introWinston,.introBrand,.introGreeting,.welcome + .services { animation:none; opacity:1; transform:none; } }
 @media(max-width:600px) { .header { grid-template-columns:72px minmax(0,1fr) 72px; }.serviceLine { font-size:11px; }.shell .welcome .introWinston { width:200px; height:200px; }.shell .welcome h1 { height:64px; }.shell .welcome .welcomeLogo { width:128px; height:128px; top:-22px; }.shell .welcome .tagline { font-size:24px; } }

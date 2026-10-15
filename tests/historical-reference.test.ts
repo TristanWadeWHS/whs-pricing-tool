@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('server-only',()=>({}));
 import { NextRequest } from 'next/server';
 import { currentReferenceScope, matchHistoricalReference, resolveHistoricalReference, type ReferenceScope } from '../app/lib/historical-reference';
 import { POST } from '../app/api/historical-reference/route';

@@ -15,7 +15,7 @@ import { archiveAnalysisPhotos } from '../../lib/estimate-photos';
 
 export const runtime = 'nodejs';
 const submissionSchema = z.object({ message: z.string().trim().max(1000), room: z.string().trim().max(60),
-  services: z.array(z.string()).max(7), photoRooms: z.array(z.string().max(60)).max(10),
+  services: z.array(z.string()).min(1).max(7), photoRooms: z.array(z.string().max(60)).max(10),
   actions: z.array(z.object({ id: z.string().max(45), choice: z.enum(['included', 'excluded', 'unresolved']) }).strict()).max(40),
   answers: z.array(z.object({ id: z.string().max(65), text: z.string().trim().max(400), notSure: z.boolean() }).strict()).max(2)
 }).strict();
@@ -69,6 +69,7 @@ export async function POST(req: Request) {
       const v=visitor(req); if(!v)throw new ArchiveError('session_required',401);
       const metadata=z.object({estimateId:z.string().uuid(),requestId:z.string().uuid(),revision:z.number().int().min(0).max(24)}).strict().parse(JSON.parse(String(form.get('history'))));
       const store=new EstimateStore(),job=await store.job(v,metadata.estimateId);
+      await store.inquiry(v,job.id);
       const input={submission:exactSubmission,photoHashes:photos.map(p=>p.hash),revision:metadata.revision};
       const reservation=await store.reserve(v,job.id,metadata.requestId,metadata.revision,input,photos.length>0,verifiedStaff(req));
       if(reservation.cached)return reply({...reservation.result,token:signConversation(reservation.state!),archiveRevision:metadata.revision+1});
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
     for (const answer of data.answers) state.answers = [...state.answers.filter((a) => a.id !== answer.id), { ...answer, text: answer.notSure ? '' : answer.text }];
     state.messages.push({ text: data.message, room: data.room }); state.turn++;
     state.services = data.services; state.photoHashes = photos.map((p) => p.hash); state.photoRooms = data.photoRooms;
+    if(archive)await archive.store.setInquiryServices(archive.visitor,archive.id,data.services);
     async function complete(result:Omit<ConversationResult,'token'>,model:ConversationModel|null,template='') {
       const signed=signConversation(state);
       if(archive)await archive.store.finish(archive.visitor,archive.id,archive.request,archive.lease,archive.input,state,result,model,template,model?getConfiguredOpenAIModel():'none');

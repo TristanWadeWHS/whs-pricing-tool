@@ -1,3 +1,4 @@
+import type { Inquiry } from './inquiry-schema';
 type Photo = { original:File; archiveId:string };
 async function jsonPost(path:string,data:unknown,signal:AbortSignal) {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal});
@@ -6,6 +7,12 @@ async function jsonPost(path:string,data:unknown,signal:AbortSignal) {
 export class ArchiveSession {
   id=crypto.randomUUID(); revision=0;
   private completed=new Set<string>();
+  async capture(inquiry:Inquiry,signal:AbortSignal) {
+    // Establish the cookie first so a failed contact save can retry the same ID.
+    const session=await jsonPost('/api/estimate-session',{id:this.id},signal);
+    if(!session.enabled)throw new Error('Private inquiry saving is unavailable. Please contact WHS.');
+    await jsonPost('/api/estimate-session',{id:this.id,inquiry},signal);
+  }
   async prepare(form:FormData,photos:Photo[],signal:AbortSignal) {
     await jsonPost('/api/estimate-session',{id:this.id},signal);
     for(let index=0;index<photos.length;index++) {
