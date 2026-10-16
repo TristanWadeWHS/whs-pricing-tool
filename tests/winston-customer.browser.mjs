@@ -159,7 +159,10 @@ try {
     const booking=page.getByRole('form',{name:'Booking request'});
     const bookingCalls=[];
     const slot={start:'2026-12-01T18:00:00.000Z',end:'2026-12-01T19:00:00.000Z',label:'December 1, 10:00 AM'};
-    await page.route('**/api/booking/availability',route=>route.fulfill({json:{ok:true,slots:[slot]}}));
+    let availabilityCalls=0;
+    await page.route('**/api/booking/availability',route=>{availabilityCalls++;
+      return availabilityCalls===1?route.fulfill({status:503,json:{error:'Booking is not enabled in this Preview. Available times cannot be checked here yet.'}})
+        :route.fulfill({json:{ok:true,slots:availabilityCalls===2?[]:[slot]}});});
     await page.route('**/api/booking/request',route=>{const body=route.request().postDataJSON();bookingCalls.push(body);return bookingCalls.length===1?route.fulfill({status:503,json:{error:'Synthetic uncertain response. Retry this request.'}}):route.fulfill({json:{ok:true,pending:true,leadId:'AI-synthetic-request',requestedTime:slot.label}});});
     await booking.getByLabel('Full name',{exact:true}).fill('Synthetic Customer');
     await booking.getByLabel('Street address',{exact:true}).fill('1 Test Street');
@@ -167,6 +170,12 @@ try {
     await booking.getByLabel('ZIP code',{exact:true}).fill('92618');
     await booking.getByLabel('Special notes (optional)',{exact:true}).fill('Synthetic access note');
     await booking.getByLabel('Requested date',{exact:true}).fill('2026-12-01');
+    await booking.getByRole('alert').filter({hasText:'not enabled in this Preview'}).waitFor();
+    assert.equal(await booking.getByLabel('Available time (Pacific)',{exact:true}).count(),0);
+    assert.equal(await booking.getByText('No appointments are available on this date. Please choose another date.',{exact:true}).count(),0);
+    await booking.getByRole('button',{name:'Refresh available times',exact:true}).click();
+    await booking.getByText('No appointments are available on this date. Please choose another date.',{exact:true}).waitFor();
+    await booking.getByRole('button',{name:'Refresh available times',exact:true}).click();
     await booking.getByLabel('Available time (Pacific)',{exact:true}).selectOption(slot.start);
     await booking.getByRole('checkbox').check();
     await booking.getByRole('button',{name:'Submit request',exact:true}).scrollIntoViewIfNeeded();

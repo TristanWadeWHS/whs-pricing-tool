@@ -8,6 +8,7 @@ import { POST } from '../app/api/conversation/route';
 import { freshConversation, finishConversation, readConversation, signConversation } from '../app/lib/conversation-state';
 import { conversationModelSchema, type ConversationModel, type ConversationState } from '../app/lib/conversation-schema';
 import { sampleAnalysis, pngBytes } from './helpers';
+import { clarificationDraft } from '../app/lib/clarification-draft';
 import { volumeBaseline } from '../app/lib/pricing';
 import { zodTextFormat } from 'openai/helpers/zod';
 
@@ -281,6 +282,24 @@ describe('conversation transport / mocked provider lifecycle', () => {
     const removed = await post({ actions: [{ id: 'i_fridge', choice: 'excluded' }], photoRooms: ['Garage', 'Bedroom'] }, added.body.token, [photo(), photo(1)]);
     expect(removed.body.baseline.point).toBe(330);
     const altered = await post({}, removed.body.token, [photo(2)]); expect(altered.status).toBe(400);
+  });
+  it('prices the first combined scope-and-answer submission without asking for the price again', async () => {
+    parse.mockResolvedValue({ output_parsed: model({ questions: [question] }) });
+    const inventory = await post();
+    const partiallyConfirmed = await post({ actions: [{ id: 'i_boxes', choice: 'included' }] }, inventory.body.token);
+    expect(partiallyConfirmed.body.baseline).toBeNull();
+    expect(partiallyConfirmed.body.questions).toHaveLength(1);
+    const draft = clarificationDraft(partiallyConfirmed.body.items, partiallyConfirmed.body.questions,
+      { i_boxes: 'included', i_fridge: 'excluded' },
+      { 'i_boxes:contents': { text: 'Lightweight decorations; keep boxes intact.', notSure: false } });
+    const answeredModel = model({ questions: [question] });
+    answeredModel.loadedGroups[0].answerIds = ['i_boxes:contents'];
+    parse.mockResolvedValue({ output_parsed: answeredModel });
+    const final = await post({ ...draft, message: 'Here are my answers.' }, partiallyConfirmed.body.token);
+    expect(final.status).toBe(200);
+    expect(final.body.baseline?.point).toBe(330);
+    expect(final.body.questions).toEqual([]);
+    expect(final.body.items.find((i: {id:string}) => i.id === 'i_fridge').choice).toBe('excluded');
   });
   it('accepts ten distinct processed photos and rejects eleven, duplicates, invalid services and forged choices', async () => {
     parse.mockResolvedValue({ output_parsed: model() });

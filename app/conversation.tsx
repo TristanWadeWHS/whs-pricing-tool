@@ -8,6 +8,7 @@ import BookingFollowUp from './booking-follow-up';
 import RevealedText from './revealed-text';
 import { ArchiveSession } from './lib/estimate-archive-client';
 import { inquirySchema } from './lib/inquiry-schema';
+import { clarificationDraft } from './lib/clarification-draft';
 import { customerAssumptions, customerEstimate, localComparison, ESTIMATE_INTRO, PHOTO_PENDING, SCOPE_PENDING, WINSTON_GREETING } from './lib/conversation-presentation';
 
 type Photo = { file: File; original:File; archiveId:string; room: string; url: string; hash: string };
@@ -135,10 +136,11 @@ export default function Conversation({ owner = false, archiveEnabled = false }: 
     const message = service ? `I'd like help with ${service[1]}.` : mode === 'message' ? text.trim() : mode === 'scope' ? 'Please use my confirmed scope choices.' : 'Here are my answers.';
     if (!message && photos.length === sentPhotos.current) return;
     const form = new FormData(); if (token.current) form.set('token', token.current);
-    form.set('submission', JSON.stringify({ message, room: room.trim(), services: selectedServices, photoRooms: photos.map((p) => p.room),
-      actions: mode === 'scope' ? Object.entries(choices).map(([id, choice]) => ({ id, choice })) : [],
-      answers: mode === 'answers' ? (result?.questions ?? []).map((q) => ({ id: q.id, text: answers[q.id]?.text ?? '', notSure: answers[q.id]?.notSure ?? false }))
-        : mode === 'message' && replyTo && message ? [{ id: replyTo, text: message, notSure: /^(?:not sure|i don'?t know|unknown)[.!]?$/i.test(message) }] : [] }));
+    const clarifying = mode === 'scope' || mode === 'answers' || (mode === 'message' && !!replyTo);
+    const draftAnswers = mode === 'message' && replyTo && message
+      ? { ...answers, [replyTo]: { text: message, notSure: /^(?:not sure|i don'?t know|unknown)[.!]?$/i.test(message) } } : answers;
+    const draft = clarifying ? clarificationDraft(result?.items ?? [], result?.questions ?? [], choices, draftAnswers) : { actions: [], answers: [] };
+    form.set('submission', JSON.stringify({ message, room: room.trim(), services: selectedServices, photoRooms: photos.map((p) => p.room), ...draft }));
     for (const photo of photos) form.append('photos', photo.file);
     setMessages((old) => [...old, { role: 'user', text: message || 'Here are the photos.', photos: photos.length - sentPhotos.current, room: room.trim() || 'General' }]);
     if (mode === 'message') setText('');
