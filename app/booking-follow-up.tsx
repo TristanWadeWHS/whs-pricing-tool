@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import styles from './conversation.module.css';
+import { verifiedBookingReceipt } from './lib/booking-receipt';
 
 type Slot={start:string;end:string;label:string;dateLabel?:string};
-type Receipt={ok:true;pending:true;leadId:string;requestedTime:string};
+type Receipt={ok:true;pending:true;leadId:string;requestId:string;requestedTime:string};
 const empty={name:'',street:'',city:'',state:'CA',zip:'',accessNotes:'',notes:''};
 export default function BookingFollowUp({submissionId,token}:{submissionId?:string;token:string}) {
   const [open,setOpen]=useState(false),[details,setDetails]=useState(empty),[date,setDate]=useState('');
@@ -29,7 +30,7 @@ export default function BookingFollowUp({submissionId,token}:{submissionId?:stri
     try {const response=await fetch('/api/booking/request',{method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify({token,requestId:requestId.current,confirmed:true,details:{name:details.name,address:{street:details.street,city:details.city,state:details.state,zip:details.zip,accessNotes:details.accessNotes},notes:details.notes,requestedSlot:{start:selected.start,end:selected.end,label:selected.label}}})});
       const data=await response.json();if(!alive.current)return;
       if(!response.ok||data.ok!==true||data.pending!==true){if(data.unavailable||response.status===400){requestId.current='';setAttempted(false);if(data.unavailable){setSlot('');setSlots([]);setLoaded(false);}}throw new Error(data.error||'Your request could not be confirmed. Retry the same request.');}
-      setReceipt(data);
+      setReceipt(verifiedBookingReceipt(data,submissionId!,requestId.current));
     }catch(e){if(alive.current)setError(e instanceof Error?e.message:'Your request could not be confirmed. Retry to check the same request.');}
     finally{lock.current=false;if(alive.current)setBusy(false);}
   }
@@ -37,7 +38,7 @@ export default function BookingFollowUp({submissionId,token}:{submissionId?:stri
   return <section className={styles.followUp} aria-label="Next steps">
     <div className={styles.bookingActions}><button type="button" aria-expanded={open} aria-controls="booking-details" onClick={()=>setOpen(true)}>Book the Job</button><a href="tel:+19494245605">Have Questions? Call Now</a></div>
     {open&&<div id="booking-details">
-      {receipt?<div role="status"><h3>Request received</h3><p>Thank you! Your request will be reviewed shortly. Your appointment is pending owner approval. Your time is not confirmed yet.</p><p>Request ID: {receipt.leadId}</p><p>Requested time: {receipt.requestedTime} (Pacific time)</p><p>Wade Home Services will contact you after reviewing your request.</p></div>:<form aria-label="Booking request" onSubmit={submit}>
+      {receipt?<div role="status"><h3>Request received</h3><p>Your request has been received and will be reviewed shortly. Your appointment is pending owner approval. Your appointment is not yet confirmed.</p><p>Request ID: {receipt.requestId}</p><p>Owner portal reference: {receipt.leadId}</p><p>Requested time: {receipt.requestedTime} (Pacific time)</p></div>:<form aria-label="Booking request" onSubmit={submit}>
         <h3>Request your appointment</h3><p>Your saved phone, email, selected services, photos, description, and estimate will accompany this request.</p>
         <fieldset disabled={busy||attempted} className={styles.bookingForm}>
           {field('name','Full name',true,100)}{field('street','Street address',true)}{field('city','City',true,120)}{field('state','State',true,2)}{field('zip','ZIP code',true,10)}

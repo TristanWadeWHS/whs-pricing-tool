@@ -7,7 +7,7 @@ const { chromium, devices } = require(process.env.PLAYWRIGHT_MODULE || 'playwrig
 const sharp = require('sharp');
 const url = process.env.SMOKE_URL || 'http://127.0.0.1:3017';
 assert(['localhost', '127.0.0.1'].includes(new URL(url).hostname));
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.SMOKE_BROWSER_CHANNEL ? {channel:process.env.SMOKE_BROWSER_CHANNEL} : {}) });
 const item = { id: 'i_boards', label: 'Stacked boards', photoRefs: [1, 2], room: 'General', choice: 'included' };
 const baseline = { percent: 60, cubicYards: 7.2, equivalents: 0.6, low: 252, high: 380, point: 330, range: [45.818, 69.091], display: '$252\u2013$380' };
 const result = (more = {}) => ({ token: 'synthetic', message: 'A completed synthetic response.', items: [], questions: [], baseline: null, reasons: [], assumptions: [], review: true, ...more });
@@ -163,7 +163,7 @@ try {
     await page.route('**/api/booking/availability',route=>{availabilityCalls++;
       return availabilityCalls===1?route.fulfill({status:503,json:{error:'Booking is not enabled in this Preview. Available times cannot be checked here yet.'}})
         :route.fulfill({json:{ok:true,slots:availabilityCalls===2?[]:[slot]}});});
-    await page.route('**/api/booking/request',route=>{const body=route.request().postDataJSON();bookingCalls.push(body);return bookingCalls.length===1?route.fulfill({status:503,json:{error:'Synthetic uncertain response. Retry this request.'}}):route.fulfill({json:{ok:true,pending:true,leadId:'AI-synthetic-request',requestedTime:slot.label}});});
+    await page.route('**/api/booking/request',route=>{const body=route.request().postDataJSON();bookingCalls.push(body);return bookingCalls.length===1?route.fulfill({status:503,json:{error:'Synthetic uncertain response. Retry this request.'}}):route.fulfill({json:{ok:true,pending:true,leadId:`AI-${archiveCalls[0].id}`,requestId:body.requestId,requestedTime:slot.label}});});
     await booking.getByLabel('Full name',{exact:true}).fill('Synthetic Customer');
     await booking.getByLabel('Street address',{exact:true}).fill('1 Test Street');
     await booking.getByLabel('City',{exact:true}).fill('Irvine');
@@ -176,7 +176,7 @@ try {
     await booking.getByRole('button',{name:'Refresh available times',exact:true}).click();
     await booking.getByText('No appointments are available on this date. Please choose another date.',{exact:true}).waitFor();
     await booking.getByRole('button',{name:'Refresh available times',exact:true}).click();
-    await booking.getByLabel('Available time (Pacific)',{exact:true}).selectOption(slot.start);
+    await booking.getByRole('combobox').selectOption(slot.start);
     await booking.getByRole('checkbox').check();
     await booking.getByRole('button',{name:'Submit request',exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:join(tmpdir(),`whs-booking-form-${mobile?'mobile':'desktop'}.png`)});
