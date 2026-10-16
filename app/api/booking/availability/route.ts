@@ -8,5 +8,5 @@ export async function POST(req:Request) {
   try {const data=shape.parse(await smallJson(req,128*1024));await bookingContext(req,data.token);
     const response=await website('/api/integrations/ai-pricer/availability',{date:data.date});
     const result=await response.json();return Response.json(result,{status:response.status,headers:{'Cache-Control':'no-store'}});
-  }catch(e){return Response.json({error:'Available times could not be loaded. Please retry or call WHS.'},{status:e instanceof ArchiveError?e.status:503,headers:{'Cache-Control':'no-store'}});}
+  }catch(e){return Response.json({error:e instanceof ArchiveError && e.category==='booking_disabled' ? 'Booking is not enabled in this Preview. Available times cannot be checked here yet. No request has been submitted.' : 'Available times could not be loaded. Please retry or call WHS.',code:e instanceof ArchiveError?e.category:'availability_unavailable'},{status:e instanceof ArchiveError?e.status:503,headers:{'Cache-Control':'no-store'}});}
 }
